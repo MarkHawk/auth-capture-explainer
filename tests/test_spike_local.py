@@ -73,3 +73,15 @@ def test_real_nas_packets_verify_with_the_public_break_value():
     wrong = [(c.method, c.ok) for c in radius_auth.check_request(login.request, b"some-other-value")]
     assert right == [("Message-Authenticator", True), ("User-Password", True)]
     assert wrong == [("Message-Authenticator", False), ("User-Password", False)]
+
+
+def test_likely_causes_on_real_traffic():
+    from pcap_analyser import radius_checks
+    from pcap_analyser.causes import likely_causes
+
+    (broken,) = likely_causes(radius_checks.check(analyse("radius-05-spike.pcap")))
+    assert (broken.pattern, broken.confirmed, broken.runbook) == (
+        "radius-secret-mismatch", False, "05-radius-shared-secret-mismatch")
+    assert "Against a firewall: the requests were seen arriving at the server." in broken.evidence
+    (rejected,) = likely_causes(radius_checks.check(analyse("radius-reject-spike.pcap")))
+    assert rejected.pattern == "radius-user-rejected"
