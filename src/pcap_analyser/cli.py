@@ -10,6 +10,7 @@ from pcap_analyser.capture import CaptureError, Limits, MiB, read_capture, read_
 from pcap_analyser.render import render_json, render_text, use_colour
 
 EXIT_OK, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
+EXIT_INTERRUPTED = 130  # Ctrl-C during the analysis itself (Ctrl-C while reading analyses what was read)
 
 
 def port(value):
@@ -122,9 +123,13 @@ def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
     except (CaptureError, secrets.SecretError) as exc:
         print(f"pcap-analyser: {exc}", file=stderr)
         return EXIT_ERROR
-    report = analyse(cap, options)
-    if args.json:
-        stdout.write(render_json(report))
-    else:
-        stdout.write(render_text(report, colour=use_colour(stdout)))
+    try:
+        report = analyse(cap, options)
+        if args.json:
+            stdout.write(render_json(report))
+        else:
+            stdout.write(render_text(report, colour=use_colour(stdout)))
+    except KeyboardInterrupt:
+        print("pcap-analyser: interrupted", file=stderr)
+        return EXIT_INTERRUPTED
     return report.exit_code

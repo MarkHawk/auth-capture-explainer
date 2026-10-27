@@ -106,13 +106,36 @@ def read_capture(path, limits=None):
         return _from_file(f, path.name, size, limits)
 
 
+STREAM_CHUNK = 64 * 1024
+INTERRUPTED = ("Reading was interrupted (Ctrl-C) {where}; everything read up to then is analysed, and anything "
+               "after it is missing.")
+
+
 def read_stream(stream, name="standard input", limits=None):
-    """Read a capture from a binary stream, such as tcpdump -w - piped in. The size limit applies as it
-    reads, so an endless stream stops at the limit rather than filling memory."""
+    """Read a capture from a binary stream, such as tcpdump -w - piped in, a chunk at a time. The size limit
+    applies as it reads, so an endless stream stops at the limit rather than filling memory.
+
+    Ctrl-C while reading (as when stopping 'tcpdump -w - | pcap-analyser -') ends the reading, not the
+    program: what arrived is analysed, and the report says the capture stopped early. So does a stream that
+    ends part-way through a packet."""
     limits = limits or Limits()
-    data = stream.read(limits.max_bytes + 1)
-    _check_size(name, len(data), limits)
-    return _from_file(io.BytesIO(data), name, len(data), limits)
+    parts, size, interrupted = [], 0, False
+    try:
+        while size <= limits.max_bytes:
+            chunk = stream.read(min(STREAM_CHUNK, limits.max_bytes + 1 - size))
+            if not chunk:
+                break
+            parts.append(chunk)
+            size += len(chunk)
+    except KeyboardInterrupt:
+        interrupted = True
+    _check_size(name, size, limits)
+    cap = _from_file(io.BytesIO(b"".join(parts)), name, size, limits)
+    if interrupted:
+        cap.notes.append(INTERRUPTED.format(where=f"after {size} bytes of {name}"))
+    if interrupted or CUT_SHORT in cap.notes:
+        cap.stopped_early = True
+    return cap
 
 
 def _check_size(name, size, limits):
@@ -145,7 +168,16 @@ def _what_is_it(head):
 
 
 def _read(cap, records, limits):
-    """Decode every record into cap. Records are (ts, linktype, data, direction, cut) or a note string."""
+    """Decode every record into cap. Records are (ts, linktype, data, direction, cut) or a note string.
+    Ctrl-C part-way through a big file stops the reading, not the program, as for a stream."""
+    try:
+        _read_records(cap, records, limits)
+    except KeyboardInterrupt:
+        cap.notes.append(INTERRUPTED.format(where=f"after {cap.frames} packets"))
+        cap.stopped_early = True
+
+
+def _read_records(cap, records, limits):
     for item in records:
         if isinstance(item, str):
             cap.notes.append(item)

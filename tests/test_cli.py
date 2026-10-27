@@ -252,3 +252,59 @@ def test_no_terminal_at_all_is_refused(good_login, monkeypatch):
     monkeypatch.setattr(secrets, "terminal_available", lambda: False)
     code, _, err = run("-", "--secret", stdin=io.BytesIO(good_login.read_bytes()))
     assert code == EXIT_ERROR and "no terminal here" in err
+
+
+class Interrupted(io.RawIOBase):
+    """Standard input that delivers some bytes, then the user presses Ctrl-C."""
+
+    def __init__(self, data):
+        self.data, self.done = data, False
+
+    def readable(self):
+        return True
+
+    def read(self, n=-1):
+        if self.done:
+            raise KeyboardInterrupt
+        self.done = True
+        return self.data
+
+
+def test_ctrl_c_while_reading_standard_input_analyses_what_arrived(no_reply):
+    code, out, err = run("-", stdin=Interrupted(no_reply.read_bytes()))
+    assert code == EXIT_FAIL and err == "" and "Traceback" not in out
+    assert "Capture:  standard input (pcap, raw IP, 3 packets over 4.0 s" in out and "stopped early)" in out
+    assert "WARN  Capture file" in out and "Reading was interrupted (Ctrl-C)" in " ".join(out.split())
+    assert "FAIL  Requests unanswered" in out
+
+
+def test_standard_input_ending_part_way_through_a_packet(no_reply):
+    data = no_reply.read_bytes()
+    code, out, _ = run("-", stdin=io.BytesIO(data[:-7]))
+    assert code == EXIT_FAIL and "stopped early)" in out and "the capture was cut short" in " ".join(out.split())
+
+
+def test_ctrl_c_during_the_analysis_exits_cleanly(good_login, monkeypatch):
+    from pcap_analyser import cli
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "analyse", interrupted)
+    code, out, err = run(str(good_login))
+    assert (code, out, err) == (cli.EXIT_INTERRUPTED, "", "pcap-analyser: interrupted\n")
+
+
+def test_ctrl_c_part_way_through_a_file(good_login, monkeypatch):
+    from pcap_analyser import capture, layers
+
+    real = layers.decode
+
+    def decode_then_interrupt(frame, *args):
+        if frame == 2:
+            raise KeyboardInterrupt
+        return real(frame, *args)
+
+    monkeypatch.setattr(capture.layers, "decode", decode_then_interrupt)
+    code, out, _ = run(str(good_login))
+    assert "stopped early)" in out and "Reading was interrupted (Ctrl-C) after 2 packets" in " ".join(out.split())

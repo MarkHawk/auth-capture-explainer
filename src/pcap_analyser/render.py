@@ -82,8 +82,9 @@ def _header(report):
     when = ""
     if cap.first_ts is not None:
         when = f" over {secs(cap.last_ts - cap.first_ts)}, from {_when(cap.first_ts)}"
+    stopped = ", stopped early" if cap.stopped_early else ""
     lines = [f"Capture:  {cap.name} ({cap.format}, {', '.join(link_names(cap)) or 'no packets'}, "
-             f"{plural(cap.frames, 'packet')}{when})"]
+             f"{plural(cap.frames, 'packet')}{when}{stopped})"]
     lines.append(f"Seen:     {seen_line(report)}")
     opts = report.options
     if opts["secret_given"]:

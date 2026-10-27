@@ -16,7 +16,7 @@ from pcap_analyser.findings import Finding, Status
 from pcap_analyser.layers import LINKTYPE_NAMES
 from pcap_analyser.wording import listing, plural
 
-CUT_OR_DAMAGED = ("cut short", "damaged", "Stopped after")
+CUT_OR_DAMAGED = ("cut short", "damaged", "Stopped after", "interrupted")
 
 
 @dataclass
