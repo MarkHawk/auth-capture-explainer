@@ -21,6 +21,13 @@ device and network identifiers:
 - and, by the same reasoning, NAS-IP-Address (4), NAS-IPv6-Address (95) and
   Framed-IPv6-Prefix (97), so they agree with the rewritten IP headers.
 
+and these LDAP fields, which name people, accounts and directory layout:
+
+- bind DNs (BindRequest name), and the DNs in search results;
+- search filters, which carry user names and other values;
+- matchedDN and diagnosticMessage in results, which can echo DNs, user
+  names and server details.
+
     python scripts/sanitise.py --check samples/lab        # exit 1 if anything is found
 """
 
