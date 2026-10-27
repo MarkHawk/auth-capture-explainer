@@ -1,13 +1,15 @@
-"""Name the likely root cause behind a NAS and server pair's findings, for known patterns only.
+"""Name the likely root cause behind a client and server pair's findings, for known patterns only.
 
 Findings say what the capture shows, one statement each. A pattern here
 recognises a familiar failure from the findings' details (not their
 wording), says what it most likely is, what to do first, and which evidence
 points which way, so the reader can weigh it rather than take it on trust.
 
-Causes are per pair (one NAS, one server port), because each NAS has its own
-client entry and secret on the server: one NAS with a secret mismatch and
-another whose users are simply rejected are two causes, side by side.
+Causes are per pair: one client and one server port. For RADIUS that is a
+NAS, which has its own client entry and secret on the server, so one NAS
+with a secret mismatch and another whose users are simply rejected are two
+causes, side by side. For LDAP it is usually an application or identity
+provider and its directory.
 Within a pair, patterns are tried most decisive first and the first match
 wins: a secret checked with --secret beats an inference from silence, and
 an ICMP error beats a guess. When nothing matches there is no likely cause.
@@ -23,7 +25,7 @@ never count against one: another client entry may hold another secret.
 
 from dataclasses import dataclass, field
 
-from pcap_analyser import runbooks
+from pcap_analyser import ldap_codes, runbooks
 from pcap_analyser.findings import Status
 from pcap_analyser.radius_checks import SECRET_HELP
 from pcap_analyser.wording import secs
@@ -53,15 +55,19 @@ def likely_causes(findings):
         if "pair" in f.details:
             by_pair.setdefault(f.details["pair"], []).append(f)
     secrets = {p: next((f for f in mine if f.check_id == "radius.secret"), None) for p, mine in by_pair.items()}
-    real = [p for p, mine in by_pair.items() if not mine[0].details["loopback"]]
+    real = [p for p, mine in by_pair.items() if not mine[0].details.get("loopback")]
     causes = []
     for pair in (real or list(by_pair)):
         mine = by_pair[pair]
-        found = {}
+        found, every = {}, {}
         for f in mine:
             found.setdefault(f.check_id, f)
-        found["_support"] = _support(mine[0].details, found, secrets)
-        for pattern in RADIUS_PATTERNS:
+            every.setdefault(f.check_id, []).append(f)
+        found["_all"] = every
+        ldap_pair = mine[0].details.get("protocol") == "ldap"
+        if not ldap_pair:
+            found["_support"] = _support(mine[0].details, found, secrets)
+        for pattern in (LDAP_PATTERNS if ldap_pair else RADIUS_PATTERNS):
             cause = pattern(found)
             if cause:
                 cause.server = mine[0].details["server_label"]
@@ -411,4 +417,316 @@ RADIUS_PATTERNS = (
     _silent,
     _rejected,
     _slow,
+)
+
+
+# --- LDAP patterns ---------------------------------------------------------------------
+
+def _all(found, check_id, *statuses):
+    return [f for f in found["_all"].get(check_id, []) if not statuses or f.status in statuses]
+
+
+def _bind(found, test):
+    return next((f for f in _all(found, "ldap.bind_failed") if test(f.details)), None)
+
+
+def _ad_suffix(d):
+    lead = d.get("ad_leading")
+    return f", Active Directory code {lead}" if lead else ""
+
+
+def _ldap_signing(found):
+    f = _bind(found, lambda d: d["signing_required"])
+    if not f:
+        return None
+    d = f.details
+    return Cause(
+        "ldap-signing-required", "LDAP signing or channel binding enforcement",
+        f"The directory refused a simple bind as {d['dn'] or 'anonymous'} with "
+        f"{d['result_code']} strongerAuthRequired{_ad_suffix(d)}: it requires binds on an unprotected connection "
+        "to be signed, and a simple bind cannot be. On Active Directory this is LDAP signing enforcement (the "
+        "domain controller policy \"LDAP server signing requirements\" set to require signing, the default on "
+        "current Windows Server), usually rolled out together with LDAP channel binding.",
+        "Bind over LDAPS (636) or after StartTLS, or use a SASL bind that signs (GSSAPI or GSS-SPNEGO). Do not "
+        "relax the directory's requirement: it protects against relay attacks.",
+        None, False,
+        ["For signing enforcement: resultCode 8 on a simple bind over an unencrypted connection"
+         + (", and Active Directory's 00002028 says binds must be signed." if d.get("ad_leading") == "00002028"
+            else "."),
+         "Not settled from the capture: which policy applies. On Active Directory the directory service event log "
+         "says (events 2887 and 2889 name clients that bind without signing)."],
+        ["ldap.bind_failed"])
+
+
+def _ldap_channel_binding(found):
+    f = _bind(found, lambda d: d["channel_binding"])
+    if not f:
+        return None
+    return Cause(
+        "ldap-channel-binding", "LDAP channel binding rejected",
+        "The directory rejected the bind's channel binding (80090346): LDAP channel binding is enforced, and the "
+        "client's binding to its TLS connection is missing or does not match. A TLS-inspecting proxy or a load "
+        "balancer that terminates TLS between the client and the directory causes exactly this.",
+        "Connect the client straight to the directory over LDAPS, with no device terminating TLS in between, and "
+        "use a client that supports channel binding (Extended Protection for Authentication).",
+        None, True, ["Direct: the diagnosticMessage carries 80090346, the channel binding error."],
+        ["ldap.bind_failed"])
+
+
+def _ldap_tls_required(found):
+    f = _bind(found, lambda d: d["result_code"] == 13)
+    if not f:
+        return None
+    return Cause(
+        "ldap-tls-required", "the directory requires TLS",
+        f"The directory refused the bind as {f.details['dn'] or 'anonymous'} with 13 confidentialityRequired: it "
+        "only accepts binds over an encrypted connection.",
+        "Connect with LDAPS (636) or send StartTLS before binding. Do not lower the directory's requirement: a "
+        "simple bind without TLS sends the password in clear.",
+        None, True, ["Direct: resultCode 13 confidentialityRequired."], ["ldap.bind_failed"])
+
+
+AD_BIND_REASONS = {
+    "525": ("the bind DN does not exist: the account was moved, renamed or deleted, or the DN is mistyped",
+            "Find the account's current DN in the directory and correct it in the application."),
+    "52e": ("the password stored in the application does not match the directory",
+            "Test the DN and password with ldapwhoami (ldp.exe on Windows), then make the stored password match."),
+    "530": ("the account may not log on at this time of day", "Change the account's logon hours."),
+    "531": ("the account may only log on from certain computers", "Allow the application's host for this account."),
+    "532": ("the account's password has expired", "Set a new password, then update the application with it."),
+    "533": ("the account is disabled", "Enable the account, if it should be in use."),
+    "701": ("the account has expired", "Extend or remove the account's expiry date."),
+    "773": ("the password must be changed before the account can be used",
+            "Set a new password, then update the application with it."),
+    "775": ("the account is locked out, often by the application itself retrying an old password",
+            "Fix the password stored in the application first, then unlock the account; otherwise the "
+            "application locks it again."),
+}
+
+
+def _bind_cause(f, role):
+    d = f.details
+    dn = d["dn"] or "anonymous"
+    reason = AD_BIND_REASONS.get(d.get("ad_data"))
+    code = ldap_codes.describe(d["result_code"])
+    evidence = [f"For {'a service account' if role == 'service' else 'a user account' if role == 'user' else 'either'}: "
+                f"{d['role_reason']}."] if d.get("role_reason") else []
+    if d.get("ad_data") is None and d["result_code"] == 49:
+        evidence.append("Not settled by the result code: 49 means a wrong password, or a DN that does not exist "
+                        "(OpenLDAP answers 49 for both); Active Directory adds a data code that tells them apart.")
+    first = (reason[1] if reason else
+             "Test the bind DN and the password the application stores with ldapwhoami (ldp.exe on Windows), then "
+             "make the stored password match the directory.")
+    why = f": {reason[0]}" if reason else ""
+    return dn, code, why, first, evidence
+
+
+def _ldap_service_bind(found):
+    f = _bind(found, lambda d: d["role"] == "service" and d["result_code"] in (49, 48, 53))
+    if not f:
+        return None
+    dn, code, why, first, evidence = _bind_cause(f, "service")
+    return Cause(
+        "ldap-service-bind-failed", "the service account cannot bind",
+        f"The application's directory service account {dn} cannot bind ({code}){why}. Without it the application "
+        "cannot look up any user, so every directory login fails, whatever password the user types.",
+        first, runbooks.LDAP_BIND_FAILURE, f.details["role_certain"], evidence, ["ldap.bind_failed"])
+
+
+def _ldap_user_bind(found):
+    f = _bind(found, lambda d: d["role"] == "user" and d["result_code"] in (49, 48, 53))
+    if not f:
+        return None
+    dn, code, why, first, evidence = _bind_cause(f, "user")
+    if not AD_BIND_REASONS.get(f.details.get("ad_data")):
+        first = ("Have the user check their password, and check the account (locked, expired, disabled) in the "
+                 "directory. This is one user's problem, not an outage.")
+    return Cause(
+        "ldap-user-bind-failed", "the user's own bind failed",
+        f"The user {dn} could not bind ({code}){why}. The application's own account and the user lookup are not "
+        "the problem: this is one person's password or account, not an outage.",
+        first, runbooks.LDAP_BIND_FAILURE, f.details["role_certain"], evidence, ["ldap.bind_failed"])
+
+
+def _ldap_bind_unknown_role(found):
+    f = _bind(found, lambda d: d["result_code"] in (49, 48, 53))
+    if not f:
+        return None
+    dn, code, why, first, evidence = _bind_cause(f, None)
+    return Cause(
+        "ldap-bind-failed", "a bind was rejected",
+        f"A bind as {dn} was rejected ({code}){why}. Whether it is the application's service account (every "
+        "login fails) or one user (only they fail) is not clear from the capture.",
+        first + " Add --service-dn with the application's bind DN to tell the two apart.",
+        runbooks.LDAP_BIND_FAILURE, False, evidence, ["ldap.bind_failed"])
+
+
+def _ldap_dn_missing(found):
+    f = _bind(found, lambda d: d["result_code"] == 32) or next(
+        (s for s in _all(found, "ldap.search_failed") if s.details["result_code"] == 32), None)
+    if not f:
+        return None
+    d = f.details
+    what = f"the bind DN {d['dn']}" if f.check_id == "ldap.bind_failed" else f"the search base {d['base']}"
+    near = f" The closest entry that does exist is {d['matched_dn']}." if d.get("matched_dn") else ""
+    return Cause(
+        "ldap-dn-not-found", "a DN that does not exist",
+        f"The directory says {what} does not exist (32 noSuchObject).{near} The entry was moved, renamed or "
+        "deleted, or the application's setting is mistyped.",
+        "Find the entry's current DN in the directory and correct the application's setting.",
+        runbooks.LDAP_BIND_FAILURE, True, ["Direct: resultCode 32 noSuchObject."],
+        ["ldap.bind_failed", "ldap.search_failed"])
+
+
+def _ldap_access(found):
+    f = next((s for s in _all(found, "ldap.search_failed") + _all(found, "ldap.operation_failed")
+              if s.details["result_code"] == 50), None)
+    if not f:
+        return None
+    return Cause(
+        "ldap-insufficient-access", "the account lacks permission",
+        "The directory refused an operation with 50 insufficientAccessRights: the account the application binds "
+        "as is not allowed to read or change what it asked for.",
+        "Grant the application's account read access to the users and groups it needs (and nothing more).",
+        None, True, ["Direct: resultCode 50 insufficientAccessRights."],
+        ["ldap.search_failed", "ldap.operation_failed"])
+
+
+def _ldap_bind_needed(found):
+    f = next((s for s in _all(found, "ldap.search_failed")
+              if s.details.get("ad_leading") == "000004dc" or (s.details["result_code"] == 1 and not s.details["bound"])),
+             None)
+    if not f:
+        return None
+    return Cause(
+        "ldap-bind-needed", "searched without binding",
+        "The application searched without a successful bind first, and the directory refuses anonymous "
+        "searches (Active Directory does by default).",
+        "Configure the application with a service account to bind as before it searches.",
+        None, True, ["Direct: the search failed with no successful bind before it on the connection."],
+        ["ldap.search_failed"])
+
+
+def _ldap_unauthenticated(found):
+    f = next(iter(_all(found, "ldap.unauthenticated_bind", Status.FAIL)), None)
+    if not f:
+        return None
+    return Cause(
+        "ldap-unauthenticated-bind", "unauthenticated bind accepted",
+        f"The application sent a bind as {f.details['dn']} with an empty password, and the directory accepted it as "
+        "an unauthenticated bind. That proves nothing about the password: if the application takes it as a "
+        "successful login, anyone can log in as anyone by leaving the password empty.",
+        "Make the application reject an empty password before it binds, and set the directory to refuse "
+        "unauthenticated binds.",
+        None, True, ["Direct: a simple bind with a DN, a zero-length password and resultCode 0."],
+        ["ldap.unauthenticated_bind"])
+
+
+def _ldap_user_not_found(found):
+    f = _get(found, "ldap.search_empty", Status.WARN)
+    if not f or not f.details["lookups"]:
+        return None
+    look = f.details["lookups"][0]
+    return Cause(
+        "ldap-user-not-found", "the user was not found",
+        f"The application looked the user up with {look['filter']} under {look['base'] or 'the root DSE'} and found "
+        "nothing, so it cannot go on to check their password. The user is not under that base DN, or the filter "
+        "uses a different attribute from the one the directory holds log-on names in.",
+        "Search for the user yourself (ldapsearch, or Active Directory Users and Computers) to see where they are "
+        "and which attribute holds their log-on name, then correct the application's base DN or filter.",
+        None, False, [], ["ldap.search_empty"])
+
+
+def _ldap_tls_failed(found):
+    f = _get(found, "ldap.tls", Status.FAIL, Status.WARN)
+    if not f:
+        return None
+    d = f.details
+    names = ", ".join(d["server_names"]) or "the directory's name"
+    if d["alerts"]:
+        summary = (f"The TLS handshake to the directory failed with a {d['alerts'][0]} alert, sent in clear. "
+                   "That is a certificate or trust problem between the client and the directory.")
+        confirmed, evidence = True, [f"Direct: a {d['alerts'][0]} alert."]
+    else:
+        summary = ("The TLS handshake to the directory ended before any data flowed, with no alert in clear. That "
+                   "is consistent with an encrypted certificate or trust alert (TLS 1.3 encrypts them), so a trust "
+                   "problem is likely and not ruled out.")
+        confirmed = False
+        evidence = ["For a trust problem: the handshake stopped after the server sent its certificate"
+                    + (", and the client's only reply was the size of an alert." if d["alert_sized_close"] else ".")]
+    return Cause(
+        "ldap-tls-failed", "TLS handshake failed", summary,
+        f"Check that the client trusts the CA that signed the directory's certificate, and that the certificate "
+        f"names {names}. Test from the client host with: openssl s_client -connect <host>:636 -servername {names}",
+        None, confirmed, evidence, ["ldap.tls"])
+
+
+def _ldap_starttls_refused(found):
+    f = _get(found, "ldap.starttls_refused")
+    if not f:
+        return None
+    return Cause(
+        "ldap-starttls-refused", "StartTLS refused",
+        "The directory refused StartTLS, so the connection stayed unencrypted. It has no certificate configured "
+        "for StartTLS, or does not offer it on this port.",
+        "Configure a certificate for the directory's StartTLS, or connect with LDAPS on 636 instead.",
+        None, True, [], ["ldap.starttls_refused"])
+
+
+def _ldap_refused(found):
+    f = _get(found, "ldap.refused")
+    if not f:
+        return None
+    return Cause(
+        "ldap-connection-refused", "connections refused",
+        f"{f.details['server_label']} resets connections before any data: nothing listens on that port, or a "
+        "firewall resets them.",
+        "Check that the directory service is running and listening on that port, and that no firewall between "
+        "the client and the directory resets the connection.",
+        None, True, ["Direct: the server reset the connection with no data exchanged."], ["ldap.refused"])
+
+
+def _ldap_unanswered(found):
+    f = _get(found, "ldap.unanswered")
+    if not f:
+        return None
+    return Cause(
+        "ldap-no-response", "the directory did not respond",
+        "Requests to the directory went unanswered" + (" before it reset the connection" if f.details.get(
+            "closed_by") in ("server", "both") else "") + ". The directory is overloaded or hung, or a device on "
+        "the path drops the traffic.",
+        "Check the directory's health and its access log for these requests, then the path between them.",
+        None, False, [], ["ldap.unanswered"])
+
+
+def _ldap_slow(found):
+    f = _get(found, "ldap.response_time", Status.WARN)
+    if not f:
+        return None
+    d = f.details
+    return Cause(
+        "ldap-slow", "slow directory",
+        f"{d['server_label']} is slow to respond (p50 {secs(d['p50'])}, p95 {secs(d['p95'])}, slowest a "
+        f"{d['slowest']}). Every login waits on it.",
+        "Check the directory's load and its indexes: an unindexed attribute in a user search is a common cause.",
+        None, True, [], ["ldap.response_time"])
+
+
+LDAP_PATTERNS = (
+    _ldap_signing,
+    _ldap_channel_binding,
+    _ldap_tls_required,
+    _ldap_service_bind,
+    _ldap_user_bind,
+    _ldap_bind_unknown_role,
+    _ldap_dn_missing,
+    _ldap_access,
+    _ldap_bind_needed,
+    _ldap_unauthenticated,
+    _ldap_user_not_found,
+    _ldap_tls_failed,
+    _ldap_starttls_refused,
+    _ldap_refused,
+    _ldap_unanswered,
+    _ldap_slow,
 )
