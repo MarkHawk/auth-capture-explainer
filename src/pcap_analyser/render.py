@@ -48,17 +48,27 @@ def _when(ts):
 
 # --- text --------------------------------------------------------------------------------
 
-def render_text(report, colour=False):
+def render_text(report, colour=False, verbose=False):
+    """verbose: show the capturing host's own health checks in full even when they are all well."""
     def paint(text, status):
         return f"\033[{COLOURS[status]}m{text}\033[0m" if colour else text
 
     out = [f"pcap-analyser {__version__}", *_header(report)]
     out += ["", "== Findings =="]
-    width = max((len(f.title) for f in report.findings), default=0)
+    groups = _groups(report.findings, verbose)
+    shown = [f for _, findings, folded in groups if folded is None for f in findings]
+    width = max((len(f.title) for f in shown), default=0)
+    if any(folded for _, _, folded in groups):
+        width = max(width, len(HEALTH_TITLE))
     indent = " " * (2 + 4 + 2 + width + 2)
-    groups = _groups(report.findings)
-    for heading, findings in groups:
-        if heading and sum(1 for h, _ in groups if h) > 1:
+    headed = sum(1 for heading, _, folded in groups if heading and folded is None)
+    for heading, findings, folded in groups:
+        if folded is not None:
+            body = _wrap(folded, WIDTH - len(indent))
+            out.append(f"  {paint(Status.INFO.value, Status.INFO)}  {HEALTH_TITLE:<{width}}  {body[0]}")
+            out += [indent + line for line in body[1:]]
+            continue
+        if heading and headed > 1:
             out += ["", f"  -- {heading} --"]
         for f in findings:
             head = f"  {paint(f.status.value, f.status)}{' ' * (4 - len(f.status.value))}  {f.title:<{width}}  "
@@ -121,8 +131,33 @@ def _protocol(f):
     return f.details.get("protocol") or f.check_id.split(".")[0]
 
 
-def _groups(findings):
-    """[(heading or None, findings)]: capture-level first, then each pair, then anything else."""
+HEALTH_TITLE = "Health checks"
+
+
+def _folded(findings):
+    """One line for a pair that is the capturing host checking its own RADIUS server on loopback, when all is
+    well with it; None when the pair is anything else, or when one of its findings is a FAIL or a WARN (an
+    unanswered or slow health check, a missing or failing Message-Authenticator), which is then shown in full."""
+    if not findings or not all(f.details.get("loopback") for f in findings):
+        return None
+    if any(f.status in (Status.FAIL, Status.WARN) for f in findings):
+        return None
+    answering = next((f for f in findings if f.check_id == "radius.answering"), None)
+    if answering is None:
+        return None
+    d = answering.details
+    kinds = d.get("request_kinds", {})
+    what = "health checks" if set(kinds) <= {"Status-Server"} else "requests"
+    named = ", ".join(kinds) or "Status-Server"
+    times = next((f.details for f in findings if f.check_id == "radius.response_time"), {})
+    p95 = f", p95 {_tsecs(times['p95']).replace('<1', 'under 1')}" if times.get("p95") is not None else ""
+    return (f"The server answered {d['answered']} of {d['requests']} {what} on its loopback address "
+            f"({named}{p95}). These are the capturing host checking itself; --verbose shows them in full.")
+
+
+def _groups(findings, verbose=False):
+    """[(heading or None, findings, folded line or None)]: capture-level first, then each pair, then anything
+    else. A healthy loopback health-check pair is folded into one line unless verbose."""
     top = [f for f in findings if f.check_id.startswith("capture.")]
     pairs, rest = {}, []
     for f in findings:
@@ -134,10 +169,10 @@ def _groups(findings):
             pairs.setdefault(heading, []).append(f)
         else:
             rest.append(f)
-    out = [(None, top)] if top else []
-    out += list(pairs.items())
+    out = [(None, top, None)] if top else []
+    out += [(heading, mine, None if verbose else _folded(mine)) for heading, mine in pairs.items()]
     if rest:
-        out.append((None, rest))
+        out.append((None, rest, None))
     return out
 
 

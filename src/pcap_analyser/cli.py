@@ -76,6 +76,9 @@ def build_parser():
 
     out = p.add_argument_group("output")
     out.add_argument("--json", action="store_true", help="print the report as JSON, for other tools")
+    out.add_argument("--verbose", action="store_true",
+                     help="show everything in the text report, including the capturing host's own health checks, "
+                          "which are otherwise one line while they are all well")
 
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p
@@ -128,7 +131,7 @@ def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
         if args.json:
             stdout.write(render_json(report))
         else:
-            stdout.write(render_text(report, colour=use_colour(stdout)))
+            stdout.write(render_text(report, colour=use_colour(stdout), verbose=args.verbose))
     except KeyboardInterrupt:
         print("pcap-analyser: interrupted", file=stderr)
         return EXIT_INTERRUPTED

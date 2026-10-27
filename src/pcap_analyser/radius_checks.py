@@ -281,7 +281,8 @@ def _answering(pair, point):
     shown = ", ".join(f"{n} {name}" for name, n in outcomes.most_common())
     s = f"{pair.label} answered {len(answered)} of {len(pair.exchanges)} requests from {pair.who} ({shown})."
     return Finding("radius.answering", Status.PASS, "Server answering", s, details={
-        "answered": len(answered), "requests": len(pair.exchanges), "outcomes": dict(outcomes)})
+        "answered": len(answered), "requests": len(pair.exchanges), "outcomes": dict(outcomes),
+        "request_kinds": dict(Counter(e.name for e in pair.exchanges))})
 
 
 ICMP_MEANING = {

@@ -137,3 +137,54 @@ def test_a_verdict_never_claims_encrypted_traffic_was_fine(tmp_path):
     c.server_says(1.4, lb.app_data(80))
     verdict = render.verdict_line(report_for(tmp_path, c))
     assert verdict.startswith("Verdict: no problems visible, but 1 connection is encrypted and could not be checked")
+
+
+def health_checks_and_a_silent_nas(secret=b"s"):
+    t = Trace()
+    t.health_check(0.5, 1, secret=secret)
+    t.health_check(5.5, 2, secret=secret)
+    for i in range(3):
+        t.request(1.0 + 2 * i, 16, secret=b"nas", password=b"pw", direction="in")
+    return t
+
+
+def test_healthy_loopback_health_checks_fold_into_one_line(tmp_path):
+    report = report_for(tmp_path, health_checks_and_a_silent_nas())
+    out = text(report)
+    assert "  INFO  Health checks" in out
+    assert "The server answered 2 of 2 health checks on its loopback address (Status-Server, p95 under 1 ms)." \
+        in " ".join(out.split())
+    assert "127.0.0.1 to 127.0.0.1:1812" not in out.split("== Conversations ==")[0]  # no heading, no findings
+    assert "  -- " not in out  # one real pair left: no headings at all
+    assert "127.0.0.1" in out.split("== Conversations ==")[1]  # the table keeps the row
+    loopback = [f for f in report.findings if f.details.get("loopback")]
+    assert {f.check_id for f in loopback} >= {"radius.answering", "radius.response_time"}  # kept for --json
+
+
+def test_verbose_shows_them_in_full(tmp_path):
+    out = render.render_text(report_for(tmp_path, health_checks_and_a_silent_nas()), verbose=True)
+    assert "-- 127.0.0.1 to 127.0.0.1:1812 (RADIUS) --" in out and "Health checks" not in out
+
+
+def test_an_unanswered_health_check_is_shown_in_full(tmp_path):
+    t = health_checks_and_a_silent_nas()
+    for i in range(2):
+        t.request(8.0 + 2 * i, 9, user=None, code=12, client="127.0.0.1", cport=50009, server="127.0.0.1", nas=None)
+    out = text(report_for(tmp_path, t))
+    assert "-- 127.0.0.1 to 127.0.0.1:1812 (RADIUS) --" in out and "Health checks" not in out
+
+
+def test_a_failing_secret_check_on_loopback_is_shown_in_full(tmp_path):
+    from pcap_analyser.secret import Secret
+
+    report = report_for(tmp_path, health_checks_and_a_silent_nas(secret=b"server"),
+                        options=Options(secret=Secret(b"nas", "test")))
+    out = text(report)
+    assert "-- 127.0.0.1 to 127.0.0.1:1812 (RADIUS) --" in out
+
+
+def test_json_keeps_the_health_checks_in_full(tmp_path):
+    import json
+
+    data = json.loads(render.render_json(report_for(tmp_path, health_checks_and_a_silent_nas())))
+    assert any(f["code"] == "radius.answering" and f["details"]["loopback"] for f in data["findings"])

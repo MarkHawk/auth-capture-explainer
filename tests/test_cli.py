@@ -326,3 +326,13 @@ def test_the_exit_codes_are_in_the_help(capsys):
     help_text = " ".join(capsys.readouterr().out.split())
     assert "0 no failed checks, 1 at least one FAIL, 2 the capture or the secret could not be read, 3 the capture " \
            "holds no RADIUS or LDAP to analyse, 130 interrupted" in help_text
+
+
+def test_verbose_flag(tmp_path):
+    t = Trace()
+    t.health_check(0.5, 1)
+    t.request(1.0, 2)
+    t.reply(1.01, 2)
+    path = pb.capture_file(tmp_path, "h.pcap", t)
+    assert "Health checks" in run(str(path))[1]
+    assert "Health checks" not in run(str(path), "--verbose")[1]
