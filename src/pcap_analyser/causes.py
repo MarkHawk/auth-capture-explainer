@@ -692,9 +692,10 @@ def _ldap_unanswered(found):
         return None
     return Cause(
         "ldap-no-response", "the directory did not respond",
-        "Requests to the directory went unanswered" + (" before it reset the connection" if f.details.get(
-            "closed_by") in ("server", "both") else "") + ". The directory is overloaded or hung, or a device on "
-        "the path drops the traffic.",
+        "Requests to the directory went unanswered" + (" until the directory closed the connection"
+                                                      if f.details.get("closed_by") == "server"
+                                                      else " until the client gave up") + ". The directory is "
+        "overloaded or hung, or a device on the path drops the traffic.",
         "Check the directory's health and its access log for these requests, then the path between them.",
         None, False, [], ["ldap.unanswered"])
 

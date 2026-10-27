@@ -61,6 +61,7 @@ class Operation:
     responses: list = field(default_factory=list)  # entries, references, intermediate responses
     result: ldap.Message = None  # the response that ends the operation
     abandoned: bool = False
+    abandoned_at: float = None  # when the client sent the Abandon
 
     @property
     def name(self):
@@ -224,7 +225,7 @@ def _pair(conn, requests, responses):
             op = Operation(m)
             conn.operations.append(op)
             if m.op == ldap.ABANDON and m.abandon_id in pending:
-                pending[m.abandon_id].abandoned = True
+                pending[m.abandon_id].abandoned, pending[m.abandon_id].abandoned_at = True, m.ts
             if op.expects_response:
                 pending[m.id] = op
             continue

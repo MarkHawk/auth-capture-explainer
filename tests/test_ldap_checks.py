@@ -7,6 +7,7 @@ handshake that stops short) and looks at what a reader would be told.
 
 import ldap_build as lb
 import pcapbuild as pb
+import pytest
 from ldap_build import Conversation
 from pcap_analyser import ldap_checks as lc
 from pcap_analyser import ldap_exchange as lx
@@ -348,16 +349,49 @@ def test_no_response_then_a_reset():
     c.client_says(1.1, lb.search_request(1, "dc=example", lb.f_present("cn")))
     c.close(30.0, from_client=False, reset=True)
     findings, causes = run(c)
-    assert "The server reset the connection." in finding(findings, "ldap.unanswered").summary
-    assert only_cause(causes).pattern == "ldap-no-response"
+    f = finding(findings, "ldap.unanswered")
+    assert f.summary == ("1 request from 192.0.2.10 to 192.0.2.2:389 got no response: a SearchRequest, then the "
+                         "server reset the connection 28.9 s later.")
+    cause = only_cause(causes)
+    assert cause.pattern == "ldap-no-response" and "until the directory closed the connection" in cause.summary
 
 
-def test_a_request_just_before_the_capture_ended():
+@pytest.mark.parametrize("capture_end,waited", [(1.6, "500 ms"), (31.1, "30.0 s")])
+def test_still_pending_when_the_capture_ended_reports_the_real_wait(capture_end, waited):
+    """No fixed grace period: half a second or half a minute, the report says how long it waited."""
     c = Conversation().handshake(1.0)
     c.client_says(1.1, lb.search_request(1, "dc=example", lb.f_present("cn")))
-    packets = c.numbered()
-    findings = lc.check(lx.analyse(packets), capture_end=2.0)
-    assert [f.check_id for f in findings] == ["ldap.capture_ended"]
+    findings = lc.check(lx.analyse(c.numbered()), capture_end=capture_end)
+    assert [f.check_id for f in findings] == ["ldap.pending"]
+    assert findings[0].status == Status.WARN
+    assert findings[0].summary == (f"1 request from 192.0.2.10 to 192.0.2.2:389 (SearchRequest) had no response "
+                                   f"after {waited}; the capture ended while it was still pending, so a response "
+                                   "may have come later, or not at all.")
+    assert likely_causes(findings) == []
+
+
+def test_the_client_abandoning_a_request_is_no_response():
+    c = Conversation().handshake(1.0)
+    c.client_says(1.1, lb.search_request(5, "dc=example", lb.f_present("cn")))
+    c.client_says(11.1, lb.abandon(6, 5))
+    f = finding(run(c)[0], "ldap.unanswered")
+    assert f.summary.endswith("got no response: a SearchRequest, which the client abandoned 10.0 s later.")
+    assert f.details["ended_by"] == ["client"]
+
+
+def test_the_client_unbinding_or_closing_while_waiting_is_no_response():
+    unbound = Conversation().handshake(1.0)
+    unbound.client_says(1.1, lb.bind_request(1, APP, "x"))
+    unbound.client_says(4.1, lb.unbind(2))
+    assert finding(run(unbound)[0], "ldap.unanswered").summary.endswith(
+        "a BindRequest, then the client unbound 3.0 s later.")
+    closed = Conversation().handshake(1.0)
+    closed.client_says(1.1, lb.bind_request(1, APP, "x"))
+    closed.close(6.1, from_client=True, reset=True)
+    findings, causes = run(closed)
+    assert finding(findings, "ldap.unanswered").summary.endswith(
+        "a BindRequest, then the client reset the connection 5.0 s later.")
+    assert "until the client gave up" in only_cause(causes).summary
 
 
 def test_notice_of_disconnection_and_slow_responses():

@@ -31,10 +31,9 @@ from pcap_analyser import ldap_exchange as lx
 from pcap_analyser.findings import Finding, Status
 from pcap_analyser.latency import Summary
 from pcap_analyser.radius_checks import server_key
-from pcap_analyser.wording import listing, plural, secs
+from pcap_analyser.wording import article, listing, plural, secs
 
 SLOW = 1.0  # seconds at p95
-REPLY_DUE = 5.0  # seconds: a request this close to the end of the capture may have been answered after it
 USER_FILTER = re.compile(r"\((?:uid|samaccountname|userprincipalname|mail|cn)=[^*)]", re.IGNORECASE)
 
 SERVICE_WORDS = {"svc", "service", "services", "serviceaccount", "serviceaccounts", "system", "app", "apps",
@@ -324,27 +323,61 @@ def _other_results(pair):
 
 
 def _unanswered(pair):
+    """Requests with no response, told apart by how the wait ended: the client gave up (Abandon, Unbind, or
+    closing the connection), the server closed it, or the capture ended while they were still pending.
+    Each is reported with the real time it waited; there is no fixed grace period."""
     out = []
     for conn in pair.connections:
-        waiting = [op for op in conn.operations if op.expects_response and not op.answered and not op.abandoned]
-        if not waiting:
-            continue
-        last = waiting[-1].request.ts
-        if pair.capture_end is not None and pair.capture_end - last < REPLY_DUE and not conn.stream.closed_by:
-            out.append(Finding("ldap.capture_ended", Status.INFO, "Capture ended", (
-                f"{plural(len(waiting), 'request')} from {pair.client} to {pair.label} had no response when the "
-                "capture stopped, shortly after; a response may have come later."), details={"count": len(waiting)}))
-            continue
-        names = listing([op.request.extended_name or op.name for op in waiting], quote=False)
-        s = f"{plural(len(waiting), 'request')} from {pair.client} to {pair.label} got no response ({names})."
-        closer = conn.stream.reset_by or conn.stream.closed_by
-        if conn.stream.reset_by in ("server", "both"):
-            s += " The server reset the connection."
-        elif conn.stream.closed_by in ("server", "both"):
-            s += " The connection was then closed."
-        out.append(Finding("ldap.unanswered", Status.FAIL, "No response", s, details={
-            "count": len(waiting), "operations": [op.name for op in waiting], "closed_by": closer}))
+        waiting = [op for op in conn.operations if op.expects_response and not op.answered]
+        ended, pending = [], []
+        for op in waiting:
+            how = _how_the_wait_ended(conn, op)
+            if how is None:
+                pending.append(op)
+            else:
+                ended.append((op, how))
+        if ended:
+            parts = [f"{article(_op_name(op))} {_op_name(op)}, {phrase}" for op, (phrase, _) in ended]
+            s = (f"{plural(len(ended), 'request')} from {pair.client} to {pair.label} got no response: "
+                 f"{'; '.join(parts)}.")
+            by = [who for _, (_, who) in ended]
+            out.append(Finding("ldap.unanswered", Status.FAIL, "No response", s, details={
+                "count": len(ended), "operations": [_op_name(op) for op, _ in ended],
+                "ended_by": by, "closed_by": "server" if "server" in by else "client"}))
+        if pending:
+            end = pair.capture_end if pair.capture_end is not None else conn.stream.last_ts
+            waits = [end - op.request.ts for op in pending]
+            names = listing([_op_name(op) for op in pending], quote=False)
+            waited = (f"after {secs(waits[0])}" if len(pending) == 1
+                      else f"after {secs(min(waits))} to {secs(max(waits))}")
+            out.append(Finding("ldap.pending", Status.WARN, "No response yet", (
+                f"{plural(len(pending), 'request')} from {pair.client} to {pair.label} ({names}) had no response "
+                f"{waited}; the capture ended while {'it was' if len(pending) == 1 else 'they were'} still "
+                "pending, so a response may have come later, or not at all."),
+                details={"count": len(pending), "waited": max(waits), "operations": [_op_name(op) for op in pending]}))
     return out
+
+
+def _op_name(op):
+    return op.request.extended_name or op.name
+
+
+def _how_the_wait_ended(conn, op):
+    """(phrase, "client" or "server") saying how the wait for a response ended, or None if still pending."""
+    sent = op.request.ts
+    if op.abandoned:
+        return f"which the client abandoned {secs(op.abandoned_at - sent)} later", "client"
+    unbind = next((o for o in conn.operations if o.request.op == ldap.UNBIND and o.request.ts >= sent), None)
+    if unbind is not None:
+        return f"then the client unbound {secs(unbind.request.ts - sent)} later", "client"
+    closes = []
+    for side, d in (("client", conn.stream.to_server), ("server", conn.stream.to_client)):
+        if d.rst or d.fin:
+            closes.append((d.last_ts, side, "reset" if d.rst else "closed"))
+    if not closes:
+        return None
+    when, side, verb = min(closes)
+    return f"then the {side} {verb} the connection {secs(max(when - sent, 0))} later", side
 
 
 def _notices(pair):

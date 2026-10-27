@@ -58,7 +58,7 @@ def summaries(radius_result=None, ldap_result=None):
             host = f"[{server}]" if ":" in server else server
             out.append(ServerSummary(
                 "ldap", radius_checks.server_key(server, port), f"{host}:{ldap_result.ports.label(port)}",
-                len({c.client for c in conns}), len(ops), sum(1 for op in ops if not op.answered and not op.abandoned),
+                len({c.client for c in conns}), len(ops), sum(1 for op in ops if not op.answered),
                 Summary.of(op.response_time for op in ops if op.answered)))
     return out
 
