@@ -3,7 +3,9 @@
 Three ways in, so it never has to go on a command line, where it would land
 in shell history and the process list:
 
-- prompt: read from the terminal with echo off (--secret with no value);
+- prompt: read from the terminal with echo off (--secret, which takes no value). It
+  asks on the controlling terminal, so it works while the capture itself
+  arrives on standard input;
 - file: read from a file (--secret-file), one trailing newline removed;
 - env: read from a named environment variable (--secret-env).
 
@@ -69,11 +71,25 @@ def _check(value, source):
     return Secret(value, source)
 
 
-def from_prompt(stream=None, prompt="RADIUS shared secret (not shown): "):
-    """Read the secret from the terminal with echo off. Refuses when there is no terminal to ask."""
-    stream = stream if stream is not None else sys.stdin
-    if not stream.isatty():
-        raise SecretError("--secret asks for the secret on the terminal, and there is none here; "
+def terminal_available():
+    """True if there is a terminal to ask on, even when standard input is a pipe (a capture coming in).
+    getpass reads the controlling terminal (/dev/tty) itself; but where there is none it silently falls back
+    to standard input, which here may be the capture, so check first. On Windows getpass reads the console."""
+    if sys.platform == "win32":
+        return True
+    try:
+        with open("/dev/tty", "rb"):
+            return True
+    except OSError:
+        return False
+
+
+def from_prompt(terminal=None, prompt="RADIUS shared secret (not shown): "):
+    """Ask for the secret on the terminal with echo off. terminal: a stream standing in for the controlling
+    terminal, for tests; by default the real one is used, whatever standard input is."""
+    there = terminal.isatty() if terminal is not None else terminal_available()
+    if not there:
+        raise SecretError("--secret asks for the secret on the terminal, and there is no terminal here; "
                           "use --secret-file or --secret-env instead")
     try:
         typed = getpass.getpass(prompt)

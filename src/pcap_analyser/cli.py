@@ -111,15 +111,12 @@ def load(args, stdin=None):
 
 
 def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
-    """stdin: the capture when it is '-'. terminal: where --secret prompts (the real terminal by default)."""
+    """stdin: the capture when it is '-'. terminal: stands in for the controlling terminal --secret asks on."""
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
     argv = sys.argv[1:] if argv is None else list(argv)
     args = build_parser().parse_args(argv)
     try:
-        if args.secret and args.capture == "-" and terminal is None and not sys.stdin.isatty():
-            raise secrets.SecretError("--secret asks on the terminal, but the capture is coming in on standard "
-                                      "input; use --secret-file or --secret-env instead")
         options = build_options(args, terminal)
         cap = load(args, stdin)
     except (CaptureError, secrets.SecretError) as exc:

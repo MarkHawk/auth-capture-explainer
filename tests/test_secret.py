@@ -84,8 +84,31 @@ def test_from_prompt_reads_with_echo_off(monkeypatch):
 
 
 def test_from_prompt_refuses_without_a_terminal():
-    with pytest.raises(SecretError, match="use --secret-file or --secret-env"):
+    with pytest.raises(SecretError, match="there is no terminal here; use --secret-file or --secret-env"):
         sec.from_prompt(io.StringIO())
+
+
+def test_the_real_prompt_uses_the_controlling_terminal_not_standard_input(monkeypatch):
+    """Standard input may be the capture: whether a prompt is possible depends on /dev/tty alone."""
+    monkeypatch.setattr(sec, "terminal_available", lambda: True)
+    monkeypatch.setattr(sec.sys, "stdin", io.BytesIO(b"\xd4\xc3\xb2\xa1 a capture"))
+    monkeypatch.setattr(sec.getpass, "getpass", lambda prompt: VALUE)
+    assert sec.from_prompt().value == VALUE.encode()
+    monkeypatch.setattr(sec, "terminal_available", lambda: False)
+    with pytest.raises(SecretError, match="no terminal here"):
+        sec.from_prompt()
+
+
+def test_terminal_available_reads_dev_tty(monkeypatch):
+    opened = []
+
+    def fake_open(path, mode):
+        opened.append(path)
+        raise OSError("no tty")
+
+    monkeypatch.setattr(sec.sys, "platform", "linux")
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert sec.terminal_available() is False and opened == ["/dev/tty"]
 
 
 def test_from_prompt_when_nothing_is_entered(monkeypatch):

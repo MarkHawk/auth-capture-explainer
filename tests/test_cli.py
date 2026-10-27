@@ -238,3 +238,17 @@ def test_a_signed_reply_from_the_wrong_secret_end_to_end(tmp_path, secret_file):
     assert "For 192.0.2.10 (NAS-Identifier \"nas\") to 192.0.2.2:1812: shared secret mismatch, confirmed" in flat
     assert "Its Access-Rejects are not about the users' passwords" in flat
     assert "How sure: confirmed by the capture" in flat
+
+
+def test_prompting_while_the_capture_comes_in_on_standard_input(good_login, monkeypatch):
+    """The secret is asked on the terminal, the capture is read from the pipe: both at once."""
+    monkeypatch.setattr(secrets, "terminal_available", lambda: True)
+    monkeypatch.setattr(secrets.getpass, "getpass", lambda prompt: SECRET_TEXT)
+    code, out, _ = run("-", "--secret", stdin=io.BytesIO(good_login.read_bytes()))
+    assert code == EXIT_OK and "given from the prompt" in out and "PASS  Shared secret" in out
+
+
+def test_no_terminal_at_all_is_refused(good_login, monkeypatch):
+    monkeypatch.setattr(secrets, "terminal_available", lambda: False)
+    code, _, err = run("-", "--secret", stdin=io.BytesIO(good_login.read_bytes()))
+    assert code == EXIT_ERROR and "no terminal here" in err
