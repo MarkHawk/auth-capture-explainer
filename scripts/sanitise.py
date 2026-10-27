@@ -11,6 +11,15 @@ comment. The committed .personal-patterns.example is deliberately empty.
 
 This scans text. Packet captures carry addresses and passwords in binary
 fields, which the capture sanitiser (added with the lab captures) checks.
+Besides IP and MAC addresses, LDAP bind passwords and RADIUS User-Password,
+that capture sanitiser must rewrite these RADIUS attributes, which carry
+device and network identifiers:
+
+- Calling-Station-Id (31): the user's device, often a MAC address or phone number;
+- Called-Station-Id (30): the NAS side, often an access point MAC and SSID;
+- Framed-IP-Address (8): the address handed to the user;
+- and, by the same reasoning, NAS-IP-Address (4), NAS-IPv6-Address (95) and
+  Framed-IPv6-Prefix (97), so they agree with the rewritten IP headers.
 
     python scripts/sanitise.py --check samples/lab        # exit 1 if anything is found
 """
