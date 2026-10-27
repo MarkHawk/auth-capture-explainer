@@ -210,3 +210,26 @@ def write(tmp_path, name, data):
     path = tmp_path / name
     path.write_bytes(data)
     return path
+
+
+# --- RADIUS ---------------------------------------------------------------------
+
+AUTH = bytes(range(16))  # a fixed Request Authenticator; tests that need it to vary pass their own
+
+
+def radius(code, ident, attrs=(), authenticator=AUTH):
+    """RADIUS bytes. attrs: (type, value) pairs, value as bytes or str."""
+    body = b""
+    for attr_type, value in attrs:
+        value = value.encode() if isinstance(value, str) else value
+        body += bytes([attr_type, len(value) + 2]) + value
+    return struct.pack("!BBH", code, ident, 20 + len(body)) + authenticator + body
+
+
+def vsa(vendor, vendor_type, value):
+    """A Vendor-Specific attribute (type 26) holding one sub-attribute."""
+    return 26, struct.pack("!I", vendor) + bytes([vendor_type, len(value) + 2]) + value
+
+
+def int_attr(attr_type, n):
+    return attr_type, struct.pack("!I", n)
