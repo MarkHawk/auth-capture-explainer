@@ -82,8 +82,8 @@ def test_a_client_sending_a_response_is_a_problem():
 def test_ldaps_is_tls_from_the_first_byte():
     c = Conversation(sport=636).handshake(1.0)
     c.client_says(1.1, lb.client_hello("ldap.example"))
-    c.server_says(1.2, lb.server_hello(tls13=True) + lb.change_cipher_spec() + lb.app_data())
-    c.client_says(1.3, lb.app_data())
+    c.server_says(1.2, lb.server_hello(tls13=True) + lb.change_cipher_spec() + lb.app_data(900))
+    c.client_says(1.3, lb.change_cipher_spec() + lb.app_data(53) + lb.app_data(120))  # Finished, then LDAP
     conn = only(c)
     assert (conn.kind, conn.encrypted, conn.port_label, conn.operations) == ("tls", True, "636 (LDAPS)", [])
     assert conn.tls.server_name == "ldap.example" and conn.tls.server_version == "TLS 1.3" and conn.tls.completed

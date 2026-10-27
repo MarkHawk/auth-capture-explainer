@@ -7,10 +7,17 @@ when an encrypted LDAP connection fails:
   it asks for (SNI);
 - the ServerHello: the version the server picks;
 - alerts sent before encryption starts, such as unknown_ca when the client
-  does not trust the server's certificate (in TLS 1.2; in TLS 1.3 most
-  alerts are already encrypted, and only "an encrypted alert" can be said);
-- whether both sides went on to exchange application data, which means the
-  handshake completed.
+  does not trust the server's certificate (in TLS 1.2);
+- whether the handshake completed and data flowed.
+
+TLS 1.3 needs care. Everything after the ServerHello, including the
+server's certificate, the client's Finished and any alert, travels as
+encrypted records of the application-data type, so seeing such records from
+both sides proves nothing. A TLS 1.3 handshake counts as complete only when
+the client sent more than one of them (its Finished, then data). One that
+stops short is reported as consistent with an encrypted alert, which is how
+a client rejecting the server's certificate looks in TLS 1.3. Not seeing an
+alert never counts as there being no trust problem.
 
 Records are read up to MAX_RECORDS or MAX_BYTES per direction, and every
 length is checked first. Anything that does not parse just ends the reading
@@ -26,6 +33,9 @@ CLIENT_HELLO, SERVER_HELLO = 1, 2
 EXT_SERVER_NAME, EXT_SUPPORTED_VERSIONS = 0, 43
 MAX_RECORDS = 64
 MAX_BYTES = 256 * 1024
+# An encrypted TLS 1.3 alert: 2 bytes, the inner content type, a 16-byte tag, and perhaps some padding.
+# A Finished is at least 4 + 32 + 1 + 16 = 53 bytes, so anything up to this size is alert-sized.
+ALERT_RECORD_MAX = 40
 
 VERSIONS = {0x0300: "SSL 3.0", 0x0301: "TLS 1.0", 0x0302: "TLS 1.1", 0x0303: "TLS 1.2", 0x0304: "TLS 1.3"}
 ALERTS = {
@@ -56,15 +66,63 @@ class TlsInfo:
     server_name: str = None  # SNI
     server_version: str = None  # the version the server picked
     alerts: list = field(default_factory=list)
-    client_data: bool = False  # application data records from the client
-    server_data: bool = False
+    client_records: list = field(default_factory=list)  # lengths of the client's application-data records
+    server_records: list = field(default_factory=list)
     client_hello: bool = False
     server_hello: bool = False
 
     @property
+    def client_data(self):
+        return bool(self.client_records)
+
+    @property
+    def server_data(self):
+        return bool(self.server_records)
+
+    @property
+    def tls13(self):
+        return self.server_version == "TLS 1.3"
+
+    @property
     def completed(self):
-        """Both sides sent application data, so the handshake finished."""
+        """The handshake finished and data flowed. In TLS 1.3 the client's first encrypted record is its
+        Finished (or an alert), so data has flowed only once it sends another."""
+        if self.tls13:
+            return len(self.client_records) >= 2 and self.server_data
         return self.client_data and self.server_data
+
+    @property
+    def plaintext_alerts(self):
+        return [a for a in self.alerts if a.level is not None]
+
+    @property
+    def alert_sized_close(self):
+        """TLS 1.3: the client's only encrypted record is the size of an alert, not of a Finished."""
+        return self.tls13 and len(self.client_records) == 1 and self.client_records[0] <= ALERT_RECORD_MAX
+
+    def outcome(self):
+        """One or two sentences on how the handshake went, for a report. Never claims there was no trust
+        problem: in TLS 1.3 a certificate or trust alert is encrypted and cannot be seen."""
+        alerts = self.plaintext_alerts
+        if alerts:
+            a = alerts[0]
+            who = "The client" if a.side == "client" else "The server"
+            return f"{who} sent a {a.level} {a.description} alert, so the handshake failed."
+        if not self.client_hello:
+            return "The start of the TLS handshake is not in the capture, so how it went cannot be told."
+        if not self.server_hello:
+            return ("The client opened a TLS handshake and the server never answered it with a ServerHello: the "
+                    "server does not speak TLS on this port, or the connection was cut.")
+        if self.completed:
+            return "The TLS handshake completed and data flowed both ways."
+        if self.tls13:
+            ended = ("the client sent one encrypted record the size of an alert and nothing more"
+                     if self.alert_sized_close else "no application data followed")
+            return ("The TLS 1.3 handshake ended after the ServerHello: " + ended + ". That is consistent with an "
+                    "encrypted certificate or trust alert, such as the client not trusting the server's "
+                    "certificate. TLS 1.3 encrypts alerts, so not seeing one does not rule a trust problem out.")
+        return ("The TLS handshake ended after the ServerHello with no application data and no alert in clear. A "
+                "certificate or trust problem is not ruled out.")
 
 
 def inspect(client_bytes, server_bytes):
@@ -88,7 +146,7 @@ def _direction(data, side, info):
         if ctype == CHANGE_CIPHER_SPEC:
             encrypted = True
         elif ctype == APPLICATION_DATA:
-            setattr(info, f"{side}_data", True)
+            getattr(info, f"{side}_records").append(length)
             encrypted = True  # TLS 1.3 sends everything after ServerHello as application data
         elif ctype == ALERT:
             if not encrypted and length == 2:
