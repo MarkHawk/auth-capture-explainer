@@ -37,10 +37,10 @@ from pcap_analyser.radius_dict import (
     STATUS_SERVER,
     text,
 )
+from pcap_analyser.wording import article, listing, plural, secs, times
 
 SLOW = 1.0  # seconds at p95, for replies other than Access-Reject: a NAS typically times out at 2 to 5 s
 SECRET_HELP = "--secret (prompts), --secret-file or --secret-env"
-MAX_NAMES = 3  # users or clients named in one sentence before "and N more"
 SIGNED_REQUESTS = (ACCESS_REQUEST, STATUS_SERVER)
 
 
@@ -77,36 +77,6 @@ def client_label(address, exchanges):
     if len(names) == 1:
         return f'{address} (NAS-Identifier "{names[0]}")'
     return address
-
-
-def _plural(n, word, plural=None):
-    return f"{n} {word if n == 1 else (plural or word + 's')}"
-
-
-def _times(n):
-    return {1: "once", 2: "twice"}.get(n, f"{n} times")
-
-
-def _names(values, quote=True):
-    values = list(dict.fromkeys(v for v in values if v))
-    shown = [f'"{v}"' if quote else v for v in values[:MAX_NAMES]]
-    if len(values) > MAX_NAMES:
-        shown.append(f"{len(values) - MAX_NAMES} more")
-    if len(shown) <= 1:
-        return "".join(shown)
-    return ", ".join(shown[:-1]) + " and " + shown[-1]
-
-
-def _secs(s):  # also used by causes
-    if s is None:
-        return "-"
-    if s < 0.001:
-        return "under 1 ms"
-    return f"{s * 1000:.0f} ms" if s < 1 else f"{s:.1f} s"
-
-
-def _article(word):
-    return "an" if word[:1].upper() in "AEIOU" else "a"
 
 
 def is_loopback_pair(conv):
@@ -177,14 +147,14 @@ def _global_findings(result, secret):
         reasons = Counter(m.reason for m in result.malformed)
         out.append(Finding(
             "radius.malformed", Status.WARN, "Unreadable RADIUS",
-            f"{_plural(len(result.malformed), 'packet')} on RADIUS ports could not be read as RADIUS "
+            f"{plural(len(result.malformed), 'packet')} on RADIUS ports could not be read as RADIUS "
             f"(first at frame {first.packet.frame}: {first.reason}). They are left out of everything else.",
             details={"count": len(result.malformed), "reasons": dict(reasons), "first_frame": first.packet.frame}))
     if result.orphan_replies:
         n = len(result.orphan_replies)
         out.append(Finding(
             "radius.orphan_replies", Status.INFO, "Replies without requests",
-            f"{_plural(n, 'reply', 'replies')} answer{'s' if n == 1 else ''} a request that is not in the capture, "
+            f"{plural(n, 'reply', 'replies')} answer{'s' if n == 1 else ''} a request that is not in the capture, "
             "usually because the capture started after the request was sent.",
             details={"count": n}))
     if secret is None and result.exchanges:
@@ -252,28 +222,28 @@ def _unanswered(pair, point):
     resends = sum(e.retransmissions for e in missing)
     if len(missing) == 1:
         e = missing[0]
-        s = f"{pair.who} sent {_article(e.name)} {e.name}"
-        s += f" for {_names(users)}" if e.user_name else ""
+        s = f"{pair.who} sent {article(e.name)} {e.name}"
+        s += f" for {listing(users)}" if e.user_name else ""
         s += f" to {pair.label}"
         if e.retransmissions:
-            s += (f", then resent it {_times(e.retransmissions)} over {_secs(e.span)} "
+            s += (f", then resent it {times(e.retransmissions)} over {secs(e.span)} "
                   f"(ID {e.id}, same authenticator). None of the {len(e.attempts)} attempts got a reply")
         else:
             s += ". It got no reply"
     else:
-        kinds = _names([e.name for e in missing], quote=False)
+        kinds = listing([e.name for e in missing], quote=False)
         s = f"{pair.who} sent {len(missing)} requests ({kinds})"
-        s += f" for {_names(users)}" if any(users) else ""
+        s += f" for {listing(users)}" if any(users) else ""
         s += f" to {pair.label}"
         if resends:
-            s += f", with {_plural(resends, 'resend')} in all"
+            s += f", with {plural(resends, 'resend')} in all"
         total = len(pair.exchanges)
         s += ". None got a reply" if len(missing) == total else f". {len(missing)} of {total} got no reply"
     retried = [e for e in missing if e.retry_of is not None]
     if retried:
-        s += f", and {_plural(len(retried), 'was', 'were')} retried under a new ID"
+        s += f", and {plural(len(retried), 'was', 'were')} retried under a new ID"
     icmp = [i for e in missing for i, about in e.icmp if about == "request"]
-    s += "." + (" No ICMP error came back." if not icmp else f" {_plural(len(icmp), 'ICMP error')} came back "
+    s += "." + (" No ICMP error came back." if not icmp else f" {plural(len(icmp), 'ICMP error')} came back "
                                                             "(see ICMP errors).")
     lacking = [e for e in missing if e.code in SIGNED_REQUESTS and e.request.position(MESSAGE_AUTHENTICATOR) is None]
     return Finding("radius.unanswered", Status.FAIL, "Requests unanswered", s, details={
@@ -295,10 +265,10 @@ def _capture_ended(pair, point):
         return None
     e = late[-1]
     gap = e.capture_end - e.attempts[-1].packet.ts
-    lead = (f"{_plural(len(late), 'request')} from {pair.who} to {pair.label} {'was' if len(late) == 1 else 'were'} "
-            f"sent shortly before the capture stopped (the last {_secs(gap)} before)")
+    lead = (f"{plural(len(late), 'request')} from {pair.who} to {pair.label} {'was' if len(late) == 1 else 'were'} "
+            f"sent shortly before the capture stopped (the last {secs(gap)} before)")
     return Finding("radius.capture_ended", Status.INFO, "Capture ended", (
-        f"{lead}, sooner than a reply is due ({_secs(e.reply_window)}, {e.reply_window_source}). "
+        f"{lead}, sooner than a reply is due ({secs(e.reply_window)}, {e.reply_window_source}). "
         "A reply may have come after the capture stopped, so these are not counted as unanswered."),
         details={"count": len(late), "reply_window": e.reply_window, "reply_window_source": e.reply_window_source})
 
@@ -334,11 +304,11 @@ def _icmp(pair, point):
     for reason, n in reasons.most_common():
         senders = list(dict.fromkeys(i.src for i in about_requests if i.icmp.reason == reason))
         by = ("from the server itself" if senders == [pair.server]
-              else f"from {_names(senders, quote=False)} (not the server: a router or firewall on the way)")
+              else f"from {listing(senders, quote=False)} (not the server: a router or firewall on the way)")
         meaning = ICMP_MEANING.get(reason, "the request could not be delivered")
-        sentences.append(f"Requests from {pair.who} to {pair.label} drew ICMP {reason} {_times(n)}, {by}: {meaning}.")
+        sentences.append(f"Requests from {pair.who} to {pair.label} drew ICMP {reason} {times(n)}, {by}: {meaning}.")
     if about_replies:
-        sentences.append(f"{_plural(len(about_replies), 'reply', 'replies')} from {pair.label} drew ICMP port "
+        sentences.append(f"{plural(len(about_replies), 'reply', 'replies')} from {pair.label} drew ICMP port "
                          f"unreachable from {pair.client}: it had stopped listening, usually because it had given up "
                          "waiting.")
     status = Status.FAIL if about_requests else Status.WARN
@@ -414,9 +384,9 @@ def _rejects(pair, point):
         return None
     users = [e.user_name for e in rejected]
     messages = list(dict.fromkeys(m for e in rejected for m in e.reply_messages))
-    s = f"{pair.label} rejected {_plural(len(rejected), 'Access-Request')} from {pair.who}"
-    s += f" for {_names(users)}" if any(users) else ""
-    s += f". Reply-Message: {_names(messages)}." if messages else ". No Reply-Message was given."
+    s = f"{pair.label} rejected {plural(len(rejected), 'Access-Request')} from {pair.who}"
+    s += f" for {listing(users)}" if any(users) else ""
+    s += f". Reply-Message: {listing(messages)}." if messages else ". No Reply-Message was given."
     accepted = any(e.answered and e.reply.code != ACCESS_REJECT and e.code == ACCESS_REQUEST for e in pair.exchanges)
     return Finding("radius.rejects", Status.FAIL, "Access-Reject", s, details={
         "rejects": len(rejected), "users": [u for u in dict.fromkeys(users) if u], "reply_messages": messages,
@@ -430,7 +400,7 @@ def _challenges(pair, point):
     if not n:
         return None
     return Finding("radius.challenges", Status.INFO, "Access-Challenge",
-                   f"{pair.label} sent {pair.who} {_plural(n, 'Access-Challenge')}: a multi-step login such as EAP "
+                   f"{pair.label} sent {pair.who} {plural(n, 'Access-Challenge')}: a multi-step login such as EAP "
                    "was in progress, and each challenge expects a further Access-Request.", details={"count": n})
 
 
@@ -445,24 +415,24 @@ def _response_time(pair, point):
     reject_note = ""
     if rejects:
         rt = Summary.of(e.response_time for e in rejects)
-        reject_note = (f" {_plural(len(rejects), 'Access-Reject')} (after {_secs(rt.p50)}) "
+        reject_note = (f" {plural(len(rejects), 'Access-Reject')} (after {secs(rt.p50)}) "
                        f"{'is' if len(rejects) == 1 else 'are'} left out: servers delay rejects on purpose.")
     details = {"count": times.count, "p50": times.p50, "p95": times.p95, "max": times.max,
                "late_replies": len(late), "rejects": len(rejects)}
     if not normal:
-        after = _secs(Summary.of(e.response_time for e in rejects).p50)
+        after = secs(Summary.of(e.response_time for e in rejects).p50)
         return Finding("radius.response_time", Status.INFO, "Response times",
                        f"Only Access-Rejects came back from {pair.label} to {pair.who}, after {after}; servers "
                        "delay rejects on purpose, so this says nothing about the server's speed.", details=details)
-    s = (f"{pair.label} to {pair.who}: {_plural(times.count, 'reply', 'replies')}, p50 {_secs(times.p50)}, "
-         f"p95 {_secs(times.p95)}, slowest {_secs(times.max)}.")
+    s = (f"{pair.label} to {pair.who}: {plural(times.count, 'reply', 'replies')}, p50 {secs(times.p50)}, "
+         f"p95 {secs(times.p95)}, slowest {secs(times.max)}.")
     status = Status.PASS
     if times.p95 >= SLOW:
         status = Status.WARN
         s += " That is slow: a NAS typically gives up after 2 to 5 seconds."
     if late:
         status = Status.WARN
-        s += (f" {_plural(len(late), 'reply', 'replies')} came only after the client had resent its request, "
+        s += (f" {plural(len(late), 'reply', 'replies')} came only after the client had resent its request, "
               "so the server is slower than the client's timeout.")
     return Finding("radius.response_time", status, "Response times", s + reject_note, details=details)
 
@@ -471,9 +441,9 @@ def _reply_from_elsewhere(pair, point):
     odd = [e for e in pair.exchanges if e.reply_from_elsewhere]
     if not odd:
         return None
-    sources = _names([server_key(e.reply.packet.src, e.reply.packet.sport) for e in odd], quote=False)
+    sources = listing([server_key(e.reply.packet.src, e.reply.packet.sport) for e in odd], quote=False)
     return Finding("radius.reply_from_elsewhere", Status.WARN, "Reply from another address", (
-        f"{_plural(len(odd), 'reply', 'replies')} to requests {pair.who} sent to {pair.label} came from {sources} "
+        f"{plural(len(odd), 'reply', 'replies')} to requests {pair.who} sent to {pair.label} came from {sources} "
         "instead. A NAS discards a reply from an address it did not send to, so the user sees a timeout. Usually "
         "the server has several addresses and answers from the wrong one, or NAT rewrites one direction only."),
         details={"count": len(odd), "from": sources})
@@ -484,7 +454,7 @@ def _reused_ids(pair, point):
     if not reused:
         return None
     return Finding("radius.reused_ids", Status.WARN, "Identifier reused", (
-        f"{pair.who} reused a request ID {_times(len(reused))} while an earlier request with that ID was still "
+        f"{pair.who} reused a request ID {times(len(reused))} while an earlier request with that ID was still "
         "unanswered. A reply can then match only one of them; the other times out. This points at the client "
         "(too many requests in flight on one port, or a restart)."), details={"count": len(reused)})
 
@@ -566,7 +536,7 @@ def _verdict(checks):
 
 
 def _resend_note(resends):
-    return f" (and {_plural(resends, 'identical resend')})" if resends else ""
+    return f" (and {plural(resends, 'identical resend')})" if resends else ""
 
 
 def _where(mine, bad, noun):

@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 from pcap_analyser import runbooks
 from pcap_analyser.findings import Status
-from pcap_analyser.radius_checks import SECRET_HELP, _secs
+from pcap_analyser.radius_checks import SECRET_HELP
+from pcap_analyser.wording import secs
 
 
 @dataclass
@@ -392,8 +393,8 @@ def _slow(found):
     late = f", and {d['late_replies']} came only after the NAS had resent" if d["late_replies"] else ""
     return Cause(
         "radius-slow", "slow server",
-        f"{d['server_label']} is slow to reply to {d['client_label']} (p50 {_secs(d['p50'])}, p95 "
-        f"{_secs(d['p95'])}{late}), close to or past the 2 to 5 seconds after which a NAS gives up and tries again "
+        f"{d['server_label']} is slow to reply to {d['client_label']} (p50 {secs(d['p50'])}, p95 "
+        f"{secs(d['p95'])}{late}), close to or past the 2 to 5 seconds after which a NAS gives up and tries again "
         "or fails over.",
         "Check what the server waits on for each login: the directory or database behind it, DNS lookups, or a "
         "proxy to another RADIUS server. Raising the NAS's timeout only hides it.",
