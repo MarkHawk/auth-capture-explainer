@@ -12,8 +12,10 @@ works that out from, in order of strength:
 
 1. what the user said (service_dns, user_dns);
 2. behaviour: a successful bind as that DN followed by searches on the same
-   connection (an application's own account), or a DN that an earlier search
-   returned as an entry (a user being checked after being looked up);
+   connection (an application's own account); failing that, a DN that a
+   search returned as an entry (a user being checked after being looked up).
+   Bind-then-search comes first because a service account's own entry can
+   turn up in search results too (in a group lookup, say);
 3. the DN's wording: ou=services, svc, and so on for a service account,
    ou=people or ou=users for a person. This is a hint, and is called one.
 

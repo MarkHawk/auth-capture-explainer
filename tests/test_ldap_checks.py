@@ -138,6 +138,35 @@ def test_an_unknown_role_asks_for_service_dn():
     assert cause.pattern == "ldap-bind-failed" and "--service-dn" in cause.first_step
 
 
+def test_service_bind_then_user_search_then_bind_as_the_returned_dn():
+    """The usual login: the service account binds and searches, the search returns the user, the application
+    binds as that DN. Bind-then-search makes the first a service account even though a search also returns its
+    own entry (here, a group lookup that lists it); appearing in results makes the second a user."""
+    c = Conversation().handshake(1.0)
+    bind(c, 1.1, 1, PLAIN, 0)
+    search(c, 1.2, 2, "dc=example", lb.f_eq("uid", "dave"), [DAVE])
+    search(c, 1.3, 3, "dc=example", lb.f_eq("member", PLAIN), [PLAIN])
+    bind(c, 1.4, 4, DAVE, 49)
+    result = lx.analyse(c.numbered())
+    service, user = lc.bind_role(PLAIN, result), lc.bind_role(DAVE, result)
+    assert (service.role, service.certain) == ("service", True)
+    assert "followed by searches on the same connection" in service.reason
+    assert (user.role, user.certain) == ("user", True) and "an earlier search returned this DN" in user.reason
+    assert only_cause(run(c)[1]).pattern == "ldap-user-bind-failed"
+
+
+def test_bind_then_search_wins_over_appearing_in_search_results():
+    """A DN that a search returns, but that also binds and then searches, is a service account."""
+    finder = Conversation(cport=40001).handshake(1.0)
+    bind(finder, 1.1, 1, APP, 0)
+    search(finder, 1.2, 2, "dc=example", lb.f_present("objectClass"), [PLAIN])
+    worker = Conversation(cport=40002).handshake(2.0)
+    bind(worker, 2.1, 1, PLAIN, 0)
+    search(worker, 2.2, 2, "dc=example", lb.f_eq("uid", "erin"))
+    result = lx.analyse(finder.numbered() + worker.numbered(start=100))
+    assert lc.bind_role(PLAIN, result).role == "service"
+
+
 def test_upn_and_down_level_names_are_read_for_hints():
     from pcap_analyser.ldap_exchange import Result
     empty = Result(lx.DEFAULT_PORTS)
