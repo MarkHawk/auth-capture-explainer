@@ -117,3 +117,24 @@ def test_ldap_likely_cause_on_real_traffic():
     assert (cause.pattern, cause.runbook, cause.confirmed) == (
         "ldap-service-bind-failed", "04-ldap-bind-failure", False)  # the role rests on the DN's wording here
     assert "cn=keycloak-svc,ou=services,dc=idlab,dc=example" in cause.summary
+
+
+def test_the_spike_captures_as_pcapng_give_the_same_findings(tmp_path):
+    """Real lab traffic rewritten by dpkt's pcapng writer reads exactly as the original pcap."""
+    import dpkt
+
+    from pcap_analyser.analyse import analyse
+    from pcap_analyser.render import report_dict
+
+    for name in ("ldap-spike.pcap", "radius-05-spike.pcap"):
+        with open(SPIKE / name, "rb") as f:
+            reader = dpkt.pcap.Reader(f)
+            out = tmp_path / (name + "ng")
+            with open(out, "wb") as g:
+                writer = dpkt.pcapng.Writer(g, linktype=reader.datalink())
+                for ts, frame in reader:
+                    writer.writepkt(frame, ts=ts)
+        a = report_dict(analyse(read_capture(SPIKE / name)))
+        b = report_dict(analyse(read_capture(out)))
+        same = all(a[k] == b[k] for k in ("findings", "likely_causes", "conversations", "summary"))
+        assert same, name
