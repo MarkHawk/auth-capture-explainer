@@ -7,15 +7,27 @@ matter, so replies that arrive out of order still pair up.
 
 What a NAS does when no reply comes is recorded rather than smoothed over:
 
-- the same request again (same ID, same client port, within
-  RETRANSMIT_WINDOW) is a retransmission of the same exchange. Most clients
-  resend the identical bytes; a resend whose bytes differ (an accounting
-  request with an updated Acct-Delay-Time) is counted as changed;
+- the same request again (same client address and port, same ID and the same
+  Request Authenticator, within RETRANSMIT_WINDOW) is a retransmission of
+  the same exchange;
+- the same client, port and ID with a different Request Authenticator is a
+  new request, because the authenticator is what makes a request unique. If
+  the earlier request with that ID was still unanswered, the new one is
+  marked as reusing its ID: a reply can then be matched to only one of
+  them, and without the shared secret nothing in the reply says which, so
+  it goes to the newer (as most clients do);
 - a fresh request for the same user to the same server soon after an
   unanswered one is linked to it as a retry with a new ID;
 - an ICMP error about a request (the server's port is unreachable, or a
   firewall refused it) or about a reply (the NAS had stopped listening) is
   attached to the exchange it concerns.
+
+A request with no reply is "no reply", unless it was sent once and the
+capture stopped before a reply was due: then it is "no reply before the
+capture ended". When a reply is due comes from the client itself: the
+interval at which it resends unanswered requests, measured in this capture
+(for that client if it resent anything, else across the capture), falling
+back to default_reply_window when nothing was resent at all.
 
 Timing: response_time runs from the latest attempt before the reply to the
 reply, so a retransmission does not inflate it; total_time runs from the
@@ -29,7 +41,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from pcap_analyser import radius
-from pcap_analyser.latency import Summary
+from pcap_analyser.latency import Summary, percentile
 from pcap_analyser.radius_dict import (
     ACCESS_REJECT,
     ACCESS_REQUEST,
@@ -44,7 +56,11 @@ from pcap_analyser.radius_dict import (
 
 RETRANSMIT_WINDOW = 30.0  # seconds: the same ID again within this is a resend, not a new request
 RETRY_WINDOW = 60.0  # seconds: a new ID for the same user after no reply is a retry
-REPLY_DUE = 5.0  # seconds: a lone request this close to the end of the capture may be answered after it
+DEFAULT_REPLY_WINDOW = 5.0  # seconds a client waits before resending, when the capture shows none
+
+WINDOW_FROM_CLIENT = "the interval this client resends at"
+WINDOW_FROM_CAPTURE = "the interval clients in this capture resend at"
+WINDOW_DEFAULT = "the default, as nothing in the capture was resent"
 
 NO_REPLY = "no reply"
 CAPTURE_ENDED = "no reply before the capture ended"
@@ -64,8 +80,10 @@ class Exchange:
     reply_from_elsewhere: bool = False  # the reply came from a different address or port than was asked
     icmp: list = field(default_factory=list)  # (layers.Packet, "request" or "reply")
     retry_of: object = None  # an earlier unanswered Exchange this re-sends under a new ID
-    changed_resends: int = 0
+    reused_id_of: object = None  # an earlier, still unanswered Exchange with the same client, port and ID
     capture_end: float = None
+    reply_window: float = DEFAULT_REPLY_WINDOW  # seconds a reply could still be due after the last attempt
+    reply_window_source: str = WINDOW_DEFAULT
 
     @property
     def request(self):
@@ -90,7 +108,7 @@ class Exchange:
         # A request sent just before the capture stopped may have been answered after it. Once the
         # client has resent it, though, the earlier attempts plainly went unanswered.
         if (not self.retransmissions and self.capture_end is not None
-                and self.capture_end - self.attempts[-1].packet.ts < REPLY_DUE):
+                and self.capture_end - self.attempts[-1].packet.ts < self.reply_window):
             return CAPTURE_ENDED
         return NO_REPLY
 
@@ -194,7 +212,7 @@ def _group(exchanges, key):
     return list(groups.values())
 
 
-def analyse(packets, ports=radius.DEFAULT_PORTS, capture_end=None):
+def analyse(packets, ports=radius.DEFAULT_PORTS, capture_end=None, default_reply_window=DEFAULT_REPLY_WINDOW):
     """Find, decode and pair every RADIUS message in packets (layers.Packet, any order)."""
     messages, malformed = radius.find(packets, ports)
     result = Result(ports, malformed=malformed)
@@ -206,6 +224,7 @@ def analyse(packets, ports=radius.DEFAULT_PORTS, capture_end=None):
         else:
             _reply(m, latest, result)
     _attach_icmp(packets, result, ports)
+    _set_reply_windows(result.exchanges, default_reply_window)
     return result
 
 
@@ -213,16 +232,47 @@ def _request(m, latest, result, capture_end):
     p = m.packet
     key = (p.src, p.sport, p.dst, p.dport, m.id)
     ex = latest.get(key)
-    if (ex is not None and ex.reply is None and ex.code == m.code
+    if (ex is not None and ex.reply is None and ex.code == m.code and m.authenticator == ex.request.authenticator
             and p.ts - ex.attempts[-1].packet.ts <= RETRANSMIT_WINDOW):
-        if m.raw != ex.attempts[0].raw:
-            ex.changed_resends += 1
         ex.attempts.append(m)
         return
-    ex = Exchange(p.src, p.sport, p.dst, p.dport, m.id, m.code, [m], capture_end=capture_end)
-    ex.retry_of = _retried(ex, result.exchanges)
-    latest[key] = ex
-    result.exchanges.append(ex)
+    new = Exchange(p.src, p.sport, p.dst, p.dport, m.id, m.code, [m], capture_end=capture_end)
+    if ex is not None and ex.reply is None and p.ts - ex.attempts[-1].packet.ts <= RETRANSMIT_WINDOW:
+        new.reused_id_of = ex
+    new.retry_of = _retried(new, result.exchanges)
+    latest[key] = new
+    result.exchanges.append(new)
+
+
+def resend_intervals(exchange):
+    """Seconds between successive tries of one request: its retransmissions, and the gap after an
+    earlier attempt it retries under a new ID."""
+    times = [a.packet.ts for a in exchange.attempts]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    if exchange.retry_of is not None:
+        gaps.append(times[0] - exchange.retry_of.attempts[-1].packet.ts)
+    return [g for g in gaps if g > 0]
+
+
+def _set_reply_windows(exchanges, default):
+    by_client, everyone = {}, []
+    for e in exchanges:
+        gaps = resend_intervals(e)
+        by_client.setdefault(e.client, []).extend(gaps)
+        everyone.extend(gaps)
+    overall = _median(everyone)
+    for e in exchanges:
+        own = _median(by_client[e.client])
+        if own is not None:
+            e.reply_window, e.reply_window_source = own, WINDOW_FROM_CLIENT
+        elif overall is not None:
+            e.reply_window, e.reply_window_source = overall, WINDOW_FROM_CAPTURE
+        else:
+            e.reply_window, e.reply_window_source = default, WINDOW_DEFAULT
+
+
+def _median(values):
+    return percentile(sorted(values), 50) if values else None
 
 
 def _retried(ex, earlier):

@@ -53,7 +53,8 @@ def test_reject_capture():
 def test_secret_mismatch_capture():
     r = analyse("radius-05-spike.pcap")
     (login,) = by_name(r, "Access-Request")
-    assert (login.outcome, login.retransmissions, login.changed_resends) == (rx.NO_REPLY, 2, 0)
+    assert (login.outcome, login.retransmissions, login.reused_id_of) == (rx.NO_REPLY, 2, None)
+    assert 1.9 < login.reply_window < 2.1 and login.reply_window_source == rx.WINDOW_FROM_CLIENT
     assert 3.5 < login.span < 4.5  # radclient: three attempts two seconds apart
     identical = all(a.raw == login.request.raw for a in login.attempts)
     assert identical

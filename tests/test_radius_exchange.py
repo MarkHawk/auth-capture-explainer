@@ -102,16 +102,61 @@ def test_retransmissions_with_no_reply():
     for ts in (1.0, 3.0, 5.0):
         t.request(ts, 16)
     e = only(t.analyse(capture_end=6.0))
-    assert (e.retransmissions, e.changed_resends, e.span) == (2, 0, 4.0)
+    assert (e.retransmissions, e.span, e.reused_id_of) == (2, 4.0, None)
     # The capture stopped a second after the last attempt, but the first two had gone unanswered.
     assert e.outcome == rx.NO_REPLY and e.response_time is None
 
 
-def test_a_lone_request_at_the_end_may_have_been_answered_later():
+def test_a_lone_request_with_no_resends_anywhere_uses_the_default_window():
     t = Trace()
     t.request(1.0, 1)
-    assert only(t.analyse(capture_end=2.0)).outcome == rx.CAPTURE_ENDED
-    assert only(t.analyse(capture_end=1.0 + rx.REPLY_DUE + 1)).outcome == rx.NO_REPLY
+    e = only(t.analyse(capture_end=2.0))
+    assert (e.outcome, e.reply_window, e.reply_window_source) == \
+        (rx.CAPTURE_ENDED, rx.DEFAULT_REPLY_WINDOW, rx.WINDOW_DEFAULT)
+    assert only(t.analyse(capture_end=1.0 + rx.DEFAULT_REPLY_WINDOW + 1)).outcome == rx.NO_REPLY
+
+
+def test_the_default_window_is_configurable():
+    t = Trace()
+    t.request(1.0, 1)
+    e = only(rx.analyse(t.packets, capture_end=2.0, default_reply_window=0.5))
+    assert (e.outcome, e.reply_window) == (rx.NO_REPLY, 0.5)
+
+
+def test_the_window_is_the_interval_this_client_resends_at():
+    t = Trace()
+    for ts in (1.0, 4.0, 7.0):  # this client waits 3 s between attempts
+        t.request(ts, 1)
+    t.request(10.0, 1, client=OTHER_CLIENT, user="other")
+    t.request(11.0, 1, client=OTHER_CLIENT, user="other")  # another client that waits 1 s
+    t.request(30.0, 2, user="erin")
+
+    def erin(capture_end):
+        return next(e for e in t.analyse(capture_end=capture_end).exchanges if e.user_name == "erin")
+
+    assert (erin(32.5).reply_window, erin(32.5).reply_window_source) == (3.0, rx.WINDOW_FROM_CLIENT)
+    assert erin(32.5).outcome == rx.CAPTURE_ENDED  # 2.5 s after: not yet due from this client
+    assert erin(33.5).outcome == rx.NO_REPLY  # 3.5 s after: due, and unanswered
+
+
+def test_the_window_falls_back_to_the_capture_wide_interval():
+    t = Trace()
+    for ts in (1.0, 3.0):
+        t.request(ts, 1)  # this client resends after 2 s
+    t.request(10.0, 1, client=OTHER_CLIENT)  # this one never resends
+    other = t.analyse(capture_end=11.5).exchanges[1]
+    assert (other.reply_window, other.reply_window_source, other.outcome) == \
+        (2.0, rx.WINDOW_FROM_CAPTURE, rx.CAPTURE_ENDED)
+    assert t.analyse(capture_end=12.5).exchanges[1].outcome == rx.NO_REPLY
+
+
+def test_a_retry_under_a_new_id_counts_towards_the_resend_interval():
+    t = Trace()
+    t.request(1.0, 1, cport=40000)
+    t.request(5.0, 2, cport=40001)
+    t.request(20.0, 3, cport=40002, user="erin")
+    erin = t.analyse(capture_end=23.0).exchanges[2]
+    assert (erin.reply_window, erin.outcome) == (4.0, rx.CAPTURE_ENDED)
 
 
 def test_retransmission_then_reply_times_from_the_latest_attempt():
@@ -138,12 +183,35 @@ def accounting_start(delay):
     return [(41, struct.pack("!I", delay)), (44, "sess-1"), (40, struct.pack("!I", 1))]
 
 
-def test_a_changed_resend_is_counted():
+def test_same_id_with_a_new_authenticator_is_a_new_request():
+    """An accounting resend with an updated Acct-Delay-Time has a new authenticator: a new request."""
     t = Trace()
     t.request(1.0, 9, user=None, code=4, sport=1813, auth=b"\x01" * 16, extra=accounting_start(0))
     t.request(4.0, 9, user=None, code=4, sport=1813, auth=b"\x02" * 16, extra=accounting_start(3))
+    first, second = t.analyse().exchanges
+    assert first.retransmissions == second.retransmissions == 0
+    assert second.reused_id_of is first and second.retry_of is first  # same Acct-Session-Id
+
+
+def test_id_reuse_while_a_request_is_pending():
+    """Same client, port and ID, different Request Authenticator, before any reply: two requests.
+    The one reply goes to the newer, and the newer is marked as having reused the ID."""
+    t = Trace()
+    t.request(1.0, 7, user="dave", auth=b"\x0a" * 16)
+    t.request(1.5, 7, user="erin", auth=b"\x0b" * 16)
+    t.reply(1.6, 7)
+    first, second = t.analyse().exchanges
+    assert (first.user_name, first.outcome, first.retransmissions) == ("dave", rx.NO_REPLY, 0)
+    assert (second.user_name, second.outcome, second.reused_id_of) == ("erin", "Access-Accept", first)
+    assert second.retry_of is None  # a different user: not a retry
+
+
+def test_same_authenticator_is_a_retransmission():
+    t = Trace()
+    t.request(1.0, 7, auth=b"\x0a" * 16)
+    t.request(3.0, 7, auth=b"\x0a" * 16)
     e = only(t.analyse())
-    assert (e.name, e.retransmissions, e.changed_resends) == ("Accounting-Request", 1, 1)
+    assert e.retransmissions == 1 and e.reused_id_of is None
 
 
 def test_an_id_reused_after_a_reply_is_a_new_exchange():
@@ -152,7 +220,9 @@ def test_an_id_reused_after_a_reply_is_a_new_exchange():
     t.reply(1.1, 1)
     t.request(2.0, 1, auth=b"\x09" * 16)
     t.reply(2.1, 1, code=3)
-    assert [e.outcome for e in t.analyse().exchanges] == ["Access-Accept", "Access-Reject"]
+    first, second = t.analyse().exchanges
+    assert [first.outcome, second.outcome] == ["Access-Accept", "Access-Reject"]
+    assert second.reused_id_of is None  # the first had been answered: an ordinary reuse
 
 
 def test_an_id_reused_long_after_is_a_new_exchange():
