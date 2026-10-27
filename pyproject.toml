@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pcap-analyser"
+version = "0.1.0"
+description = "Explain RADIUS and LDAP authentication failures from a packet capture, offline"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "dpkt>=1.9.8",
+]
+
+[project.scripts]
+pcap-analyser = "pcap_analyser.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

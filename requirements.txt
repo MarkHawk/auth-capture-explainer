@@ -1,0 +1,3 @@
+# Runtime dependencies, pinned (direct and transitive).
+# Regenerate in a clean venv: pip install <direct deps> && pip freeze
+dpkt==1.9.8

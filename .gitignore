@@ -1,0 +1,24 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+.personal-patterns
+
+# Raw captures straight from the lab, before sanitising: never committed.
+# Only sanitised captures under samples/lab/ and the bundled demo samples are.
+scratch/
+*.pcap
+*.pcapng
+!samples/lab/**/*.pcap
+!src/pcap_analyser/demo_samples/*.pcap
