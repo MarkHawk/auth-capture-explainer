@@ -169,3 +169,43 @@ def test_several_connections_in_time_order_and_ipv6():
     b.client_says(1.1, lb.unbind(1))
     result = lx.analyse(a.numbered() + b.numbered(start=100))
     assert [c.client for c in result.connections] == [pb.CLIENT6, pb.CLIENT]
+
+
+def sasl_wrapped(n=60):
+    """A SASL security-layer buffer: a 4-byte length, then an opaque signed or sealed token."""
+    return n.to_bytes(4, "big") + b"\x05\x04" + b"\xa5" * (n - 2)
+
+
+def test_signed_or_sealed_traffic_after_a_sasl_bind_is_its_own_kind():
+    """A Kerberos bind (two steps), then Active Directory's default signing and sealing."""
+    c = Conversation().handshake(1.0)
+    c.client_says(1.1, lb.sasl_bind(1, "", "GSS-SPNEGO", b"\x60\x82token"))
+    c.server_says(1.2, lb.message(1, lb.app(1, lb.result(14), lb.ctx(7, b"challenge"))))
+    c.client_says(1.3, lb.sasl_bind(2, "", "GSS-SPNEGO", b"\xa1\x82response"))
+    c.server_says(1.4, lb.bind_response(2, 0))
+    c.client_says(1.5, sasl_wrapped(80) + sasl_wrapped(40))
+    c.server_says(1.6, sasl_wrapped(300))
+    conn = only(c)
+    assert (conn.kind, conn.protected, conn.encrypted, conn.sasl_mechanism) == ("sasl", True, False, "GSS-SPNEGO")
+    assert conn.problems == [] and conn.unfinished == 0 and conn.orphan_responses == []
+    assert [op.result.result_code for op in conn.operations] == [14, 0]
+    assert conn.sasl_frame == 8  # the client's first wrapped buffer
+
+
+def test_a_sasl_bind_without_a_security_layer_stays_readable():
+    c = Conversation().handshake(1.0)
+    c.client_says(1.1, lb.sasl_bind(1, "", "EXTERNAL"))
+    c.server_says(1.2, lb.bind_response(1, 0))
+    c.client_says(1.3, lb.search_request(2, "dc=example", lb.f_present("cn")))
+    c.server_says(1.4, lb.search_done(2))
+    conn = only(c)
+    assert conn.kind == "ldap" and [op.answered for op in conn.operations] == [True, True]
+
+
+def test_wrapped_looking_bytes_after_a_failed_sasl_bind_are_still_reported():
+    c = Conversation().handshake(1.0)
+    c.client_says(1.1, lb.sasl_bind(1, "", "GSSAPI", b"token"))
+    c.server_says(1.2, lb.bind_response(1, 49))
+    c.client_says(1.3, sasl_wrapped(40))
+    conn = only(c)
+    assert conn.kind == "ldap" and conn.problems

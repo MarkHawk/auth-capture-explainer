@@ -7,6 +7,10 @@ Each TCP connection on an LDAP port is one of:
   is paired as usual; nothing after it can be read;
 - "tls": TLS from the first byte (LDAPS on 636, or TLS on a port the user
   named). Nothing inside can be read, only the handshake's clear-text parts;
+- "sasl": clear-text LDAP until a SASL bind succeeds and negotiates a
+  security layer (Kerberos or NTLM signing or sealing, the Active Directory
+  default), then wrapped messages that cannot be read. The bind exchange is
+  paired as usual, and the wrapped part is not reported as damage;
 - "empty": no payload at all (a connection refused or never used);
 - "unreadable": bytes that are neither LDAP nor the start of TLS, usually a
   connection the capture joined part-way through.
@@ -22,7 +26,7 @@ from dataclasses import dataclass, field
 from pcap_analyser import ldap, tcpstream, tls
 from pcap_analyser.ldap import EXTENDED_RESPONSE, FINAL_RESPONSES, NO_RESPONSE, RESPONSES_FOR, SEARCH_ENTRY
 
-LDAP, STARTTLS, TLS, EMPTY, UNREADABLE = "ldap", "starttls", "tls", "empty", "unreadable"
+LDAP, STARTTLS, TLS, SASL, EMPTY, UNREADABLE = "ldap", "starttls", "tls", "sasl", "empty", "unreadable"
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,8 @@ class Connection:
     problems: list = field(default_factory=list)  # ldap.Problem, from either direction
     tls: tls.TlsInfo = None
     tls_frame: int = None  # where TLS starts
+    sasl_mechanism: str = None  # the SASL bind that started the security layer
+    sasl_frame: int = None  # where the wrapped messages start
     unfinished: int = 0  # bytes at the end of either direction that did not make a whole message
 
     @property
@@ -117,6 +123,11 @@ class Connection:
     @property
     def encrypted(self):
         return self.kind in (TLS, STARTTLS)
+
+    @property
+    def protected(self):
+        """Some or all of the connection cannot be read: TLS, or a SASL security layer."""
+        return self.kind in (TLS, STARTTLS, SASL)
 
     @property
     def gaps(self):
@@ -161,7 +172,26 @@ def _connection(stream, ports):
         conn.tls_frame = min(f for f in (client.tls_frame, server.tls_frame) if f is not None)
         conn.tls = tls.inspect(_bytes_from(up, client.tls_from), _bytes_from(down, server.tls_from))
     _pair(conn, client.messages, server.messages)
+    bind = _sasl_layer_bind(conn)
+    if bind is not None and conn.kind == LDAP:
+        # Read again, stopping where the security layer starts, so its wrapped messages are not
+        # mistaken for damaged LDAP.
+        client = ldap.parse_direction(up.chunks, sasl_from=bind.request.offset + bind.request.length)
+        server = ldap.parse_direction(down.chunks, sasl_from=bind.result.offset + bind.result.length)
+        if client.sasl_from is not None or server.sasl_from is not None:
+            conn.kind, conn.sasl_mechanism = SASL, bind.request.mechanism
+            conn.sasl_frame = min(f for f in (client.sasl_frame, server.sasl_frame) if f is not None)
+            conn.problems = sorted(client.problems + server.problems, key=lambda p: p.offset)
+            conn.unfinished = client.unfinished + server.unfinished
+            conn.operations, conn.orphan_responses, conn.notices = [], [], []
+            _pair(conn, client.messages, server.messages)
     return conn
+
+
+def _sasl_layer_bind(conn):
+    """The first SASL bind that succeeded: after it, a security layer may wrap every message."""
+    return next((op for op in conn.operations if op.request.op == ldap.BIND_REQUEST
+                 and op.request.auth == "sasl" and op.answered and op.result.result_code == 0), None)
 
 
 def _starts_with_tls(direction):

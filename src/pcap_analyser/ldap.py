@@ -15,7 +15,10 @@ A stream direction is read message by message. A message that cannot be
 decoded is reported with its offset and skipped; if the framing itself is
 lost, the reader looks ahead for the next plausible message rather than
 giving up on the connection. After a StartTLS request, bytes that look like
-a TLS record end the clear-text part of that direction.
+a TLS record end the clear-text part of that direction; after a successful
+SASL bind, so do bytes that look like a SASL security-layer buffer (a
+4-byte length, then a signed or sealed token), which Kerberos and NTLM
+binds negotiate and Active Directory uses by default.
 """
 
 from dataclasses import dataclass, field
@@ -115,6 +118,8 @@ class Parsed:
     problems: list = field(default_factory=list)
     tls_from: int = None  # stream offset where TLS records begin, if they do
     tls_frame: int = None
+    sasl_from: int = None  # stream offset where SASL-wrapped (signed or sealed) messages begin
+    sasl_frame: int = None
     unfinished: int = 0  # bytes at the end that did not make a whole message
 
 
@@ -124,16 +129,28 @@ def looks_like_tls(data):
     return len(data) >= 3 and data[0] in (20, 21, 22, 23) and data[1] == 3 and data[2] <= 4
 
 
-def parse_direction(chunks, starttls_seen=False):
+def looks_like_sasl_buffer(data):
+    """True if data starts like a SASL security-layer buffer (RFC 4422, section 3.7): a 4-byte length,
+    which for anything LDAP sends starts with a zero byte, unlike an LDAPMessage (0x30)."""
+    if len(data) < 4 or data[0] != 0:
+        return False
+    return 4 <= int.from_bytes(data[:4], "big") <= ber.MAX_LENGTH
+
+
+def parse_direction(chunks, starttls_seen=False, sasl_from=None):
     """Decode the chunks of one direction (tcpstream.Chunk). starttls_seen: a StartTLS request has been
-    seen on this connection already (for the server's direction)."""
+    seen on this connection already (for the server's direction). sasl_from: the stream offset after a
+    successful SASL bind, from which a SASL buffer ends the readable part."""
     out = Parsed()
     for chunk in chunks:
         data, pos = chunk.data, 0
         while pos < len(data):
-            if (starttls_seen or chunk.start + pos == 0) and looks_like_tls(data[pos:pos + 3]):
-                out.tls_from = chunk.start + pos
-                out.tls_frame = chunk.when(chunk.start + pos)[1]
+            here = chunk.start + pos
+            if (starttls_seen or here == 0) and looks_like_tls(data[pos:pos + 3]):
+                out.tls_from, out.tls_frame = here, chunk.when(here)[1]
+                return out
+            if sasl_from is not None and here >= sasl_from and looks_like_sasl_buffer(data[pos:pos + 4]):
+                out.sasl_from, out.sasl_frame = here, chunk.when(here)[1]
                 return out
             try:
                 element = ber.read(data, pos)
