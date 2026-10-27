@@ -138,6 +138,25 @@ def read_stream(stream, name="standard input", limits=None):
     return cap
 
 
+def frames(path):
+    """(ts, linktype, frame bytes) for every packet record in a pcap or pcapng file, without decoding them,
+    for tools that rewrite captures. Notes about damage are dropped; a file that is not a capture raises
+    CaptureError."""
+    path = pathlib.Path(path)
+    with open(path, "rb") as f:
+        head = f.read(4)
+        if head in PCAP_MAGIC:
+            records = _pcap_records(f, head)
+        elif head == PCAPNG_SHB:
+            records = _pcapng_records(f)
+        else:
+            raise CaptureError(f"{path.name} is not a pcap or pcapng capture")
+        for item in records:
+            if not isinstance(item, str):
+                ts, linktype, data, _direction, _cut = item
+                yield ts, linktype, data
+
+
 def _check_size(name, size, limits):
     if size > limits.max_bytes:
         raise CaptureError(f"{name} is over the {limits.max_bytes / MiB:.0f} MiB limit"
