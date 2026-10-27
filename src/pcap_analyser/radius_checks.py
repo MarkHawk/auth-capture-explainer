@@ -1,8 +1,16 @@
-"""Turn paired RADIUS exchanges into findings, per server.
+"""Turn paired RADIUS exchanges into findings, per server and NAS.
 
-Each server (address and port) gets its own findings, with details["server"]
-set, so a capture with two servers reads as two stories. The findings state
-what the capture shows; causes.py then names the likely reason.
+A RADIUS server keeps one client entry per NAS, each with its own shared
+secret, so the unit here is the pair: one NAS (client) talking to one server
+address and port. Every finding carries details["pair"], and causes.py names
+one likely cause per pair. Two NASes failing for different reasons against
+the same server therefore read as two stories, not one blurred one.
+
+What happens to other pairs on the same server is still context for a pair
+(the server answering other NASes, another client entry verifying with the
+secret given), and is passed along as details. It is only ever used to
+support a conclusion about this pair, never to argue against one: another
+client entry may legitimately hold a different secret.
 
 Where the capture was taken matters for "no reply": a request seen arriving
 at the server rules out a firewall in between, while the same silence seen
@@ -33,6 +41,7 @@ from pcap_analyser.radius_dict import (
 SLOW = 1.0  # seconds at p95, for replies other than Access-Reject: a NAS typically times out at 2 to 5 s
 SECRET_HELP = "--secret (prompts), --secret-file or --secret-env"
 MAX_NAMES = 3  # users or clients named in one sentence before "and N more"
+SIGNED_REQUESTS = (ACCESS_REQUEST, STATUS_SERVER)
 
 
 @dataclass(frozen=True)
@@ -47,11 +56,14 @@ def server_key(address, port):
     return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
 
 
+def pair_key(client, server, port):
+    return f"{client} -> {server_key(server, port)}"
+
+
 def server_label(address, port, ports):
     """e.g. "192.0.2.2:1812" or "192.0.2.2:1645 (legacy authentication port)"."""
-    label = ports.label(port)
     host = f"[{address}]" if ":" in address else address
-    return f"{host}:{label}"
+    return f"{host}:{ports.label(port)}"
 
 
 def is_loopback(address):
@@ -93,38 +105,66 @@ def _secs(s):  # also used by causes
     return f"{s * 1000:.0f} ms" if s < 1 else f"{s:.1f} s"
 
 
+def _article(word):
+    return "an" if word[:1].upper() in "AEIOU" else "a"
+
+
+def is_loopback_pair(conv):
+    return is_loopback(conv.client) or is_loopback(conv.server)
+
+
+@dataclass
+class Pair:
+    """One NAS and one server port, with what the rest of the capture says around them."""
+
+    client: str
+    server: str
+    port: int
+    exchanges: list  # this pair's
+    server_exchanges: list  # every exchange with this server port, from any client
+    everything: list  # every exchange in the capture
+    ports: object
+    label: str  # the server's
+    who: str  # the client's
+
+    @property
+    def others_answered(self):
+        """Other clients the same server port answered."""
+        return list(dict.fromkeys(e.client for e in self.server_exchanges if e.client != self.client and e.answered))
+
+
 def check(result, secret=None, captured_on=None):
     """Findings for a radius_exchange.Result. secret: a secret.Secret or None."""
     findings = []
     if not result.exchanges and not result.orphan_replies and not result.malformed:
         return findings
-    servers = sorted(result.servers(), key=lambda c: is_loopback(c.server))  # health checks on loopback last
-    for conv in servers:
-        findings += _server_findings(conv, result, secret, captured_on)
+    convs = sorted(result.conversations(), key=is_loopback_pair)  # health checks on loopback last
+    for conv in convs:
+        server_exchanges = [e for e in result.exchanges if (e.server, e.server_port) == (conv.server, conv.server_port)]
+        pair = Pair(conv.client, conv.server, conv.server_port, conv.exchanges, server_exchanges, result.exchanges,
+                    result.ports, server_label(conv.server, conv.server_port, result.ports),
+                    client_label(conv.client, conv.exchanges))
+        findings += _pair_findings(pair, secret, captured_on)
     findings += _global_findings(result, secret)
     return findings
 
 
-def _server_findings(conv, result, secret, captured_on):
-    key = server_key(conv.server, conv.server_port)
-    label = server_label(conv.server, conv.server_port, result.ports)
-    ctx = dict(server=key, server_label=label)
-    exchanges = conv.exchanges
+def _pair_findings(pair, secret, captured_on):
+    ctx = dict(pair=pair_key(pair.client, pair.server, pair.port), server=server_key(pair.server, pair.port),
+               server_label=pair.label, client=pair.client, client_label=pair.who,
+               loopback=is_loopback(pair.client) or is_loopback(pair.server))
+    unanswered = [e for e in pair.exchanges if e.outcome == rx.NO_REPLY]
+    point = capture_point(pair.exchanges, captured_on, pair.everything) if unanswered else None
     out = []
-    unanswered = [e for e in exchanges if e.outcome == rx.NO_REPLY]
-    point = capture_point(exchanges, captured_on, result.exchanges) if unanswered else None
-    for make in (_unanswered, _capture_ended, _answering, _icmp, _message_authenticator, _rejects,
-                 _challenges, _response_time, _reply_from_elsewhere, _reused_ids, _legacy_port):
-        f = make(exchanges, label, result.ports, point)
+    for make in (_unanswered, _capture_point, _capture_ended, _answering, _icmp, _message_authenticator,
+                 _reply_message_authenticator, _message_authenticator_position, _rejects, _challenges,
+                 _response_time, _reply_from_elsewhere, _reused_ids, _legacy_port):
+        f = make(pair, point)
         if f is not None:
             f.details = {**ctx, **f.details}
             out.append(f)
-    if point is not None and not is_loopback(conv.server):
-        out.insert(1, Finding("radius.capture_point", Status.INFO, "Capture point", point.reason,
-                              details={**ctx, "where": point.where, "certain": point.certain,
-                                       "loopback_answering": point.loopback_answering}))
     if secret is not None:
-        f = _secret(exchanges, label, secret)
+        f = _secret(pair, secret)
         f.details = {**ctx, **f.details}
         out.append(f)
     return out
@@ -161,7 +201,7 @@ def _global_findings(result, secret):
 # --- capture point ---------------------------------------------------------------
 
 def capture_point(exchanges, captured_on=None, everything=()):
-    """Where the capture was taken, judged from the requests and replies to one server.
+    """Where the capture was taken, judged from one pair's requests and replies.
     everything: all exchanges in the capture, to spot a RADIUS server answering on loopback."""
     if captured_on in ("server", "client"):
         return CapturePoint(captured_on, True, f"You said the capture was taken on the {captured_on}.")
@@ -172,8 +212,7 @@ def capture_point(exchanges, captured_on=None, everything=()):
     for m in requests:
         # A router sees each request arrive and leave: same bytes, moments apart, both directions.
         seen.setdefault((m.packet.src, m.packet.sport, m.id, m.authenticator), set()).add(m.packet.direction)
-    both = any({"in", "out"} <= d for d in seen.values())
-    if both:
+    if any({"in", "out"} <= d for d in seen.values()):
         return CapturePoint("path", True, "Each request was seen both arriving and leaving, so the capture was "
                                           "taken on a router or firewall between the client and the server.")
     if any(r.packet.direction == "out" for r in replies):
@@ -195,92 +234,84 @@ def capture_point(exchanges, captured_on=None, everything=()):
                                      "--captured-on server or --captured-on client if you know.")
 
 
-# --- per-server findings -----------------------------------------------------------
+def _capture_point(pair, point):
+    if point is None or is_loopback(pair.server):
+        return None
+    return Finding("radius.capture_point", Status.INFO, "Capture point", point.reason,
+                   details={"where": point.where, "certain": point.certain,
+                            "loopback_answering": point.loopback_answering})
 
-def _unanswered(exchanges, label, ports, point):
-    missing = [e for e in exchanges if e.outcome == rx.NO_REPLY]
+
+# --- per-pair findings ----------------------------------------------------------------
+
+def _unanswered(pair, point):
+    missing = [e for e in pair.exchanges if e.outcome == rx.NO_REPLY]
     if not missing:
         return None
-    sentences = []
-    by_client = {}
-    for e in missing:
-        by_client.setdefault(e.client, []).append(e)
-    for client, mine in by_client.items():
-        total = sum(1 for e in exchanges if e.client == client)
-        who = client_label(client, exchanges)
-        resends = sum(e.retransmissions for e in mine)
-        kinds = _names([e.name for e in mine], quote=False)
-        users = [e.user_name for e in mine]
-        if len(mine) == 1:
-            e = mine[0]
-            s = f"{who} sent {_article(e.name)} {e.name}"
-            s += f" for {_names(users)}" if e.user_name else ""
-            s += f" to {label}"
-            if e.retransmissions:
-                s += (f", then resent it {_times(e.retransmissions)} over {_secs(e.span)} "
-                      f"(ID {e.id}, same authenticator). None of the {len(e.attempts)} attempts got a reply")
-            else:
-                s += ". It got no reply"
+    users = [e.user_name for e in missing]
+    resends = sum(e.retransmissions for e in missing)
+    if len(missing) == 1:
+        e = missing[0]
+        s = f"{pair.who} sent {_article(e.name)} {e.name}"
+        s += f" for {_names(users)}" if e.user_name else ""
+        s += f" to {pair.label}"
+        if e.retransmissions:
+            s += (f", then resent it {_times(e.retransmissions)} over {_secs(e.span)} "
+                  f"(ID {e.id}, same authenticator). None of the {len(e.attempts)} attempts got a reply")
         else:
-            s = f"{who} sent {len(mine)} requests ({kinds})"
-            s += f" for {_names(users)}" if any(users) else ""
-            s += f" to {label}"
-            if resends:
-                s += f", with {_plural(resends, 'resend')} in all"
-            s += ". None got a reply" if len(mine) == total else f". {len(mine)} of {total} got no reply"
-        retried = [e for e in mine if e.retry_of is not None]
-        if retried:
-            s += f", and {_plural(len(retried), 'was', 'were')} retried under a new ID"
-        sentences.append(s + ".")
+            s += ". It got no reply"
+    else:
+        kinds = _names([e.name for e in missing], quote=False)
+        s = f"{pair.who} sent {len(missing)} requests ({kinds})"
+        s += f" for {_names(users)}" if any(users) else ""
+        s += f" to {pair.label}"
+        if resends:
+            s += f", with {_plural(resends, 'resend')} in all"
+        total = len(pair.exchanges)
+        s += ". None got a reply" if len(missing) == total else f". {len(missing)} of {total} got no reply"
+    retried = [e for e in missing if e.retry_of is not None]
+    if retried:
+        s += f", and {_plural(len(retried), 'was', 'were')} retried under a new ID"
     icmp = [i for e in missing for i, about in e.icmp if about == "request"]
-    sentences.append("No ICMP error came back." if not icmp else
-                     f"{_plural(len(icmp), 'ICMP error')} came back (see ICMP errors).")
-    lacking = [e for e in missing if e.code in (ACCESS_REQUEST, STATUS_SERVER)
-               and not e.request.has(MESSAGE_AUTHENTICATOR)]
-    return Finding("radius.unanswered", Status.FAIL, "Requests unanswered", " ".join(sentences), details={
+    s += "." + (" No ICMP error came back." if not icmp else f" {_plural(len(icmp), 'ICMP error')} came back "
+                                                            "(see ICMP errors).")
+    lacking = [e for e in missing if e.code in SIGNED_REQUESTS and e.request.position(MESSAGE_AUTHENTICATOR) is None]
+    return Finding("radius.unanswered", Status.FAIL, "Requests unanswered", s, details={
         "unanswered": len(missing),
-        "clients": list(by_client),
-        "users": [u for u in dict.fromkeys(e.user_name for e in missing) if u],
+        "users": [u for u in dict.fromkeys(users) if u],
         "retransmitted": any(e.retransmissions or e.retry_of for e in missing),
-        "resends": sum(e.retransmissions for e in missing),
+        "resends": resends,
         "icmp": bool(icmp),
         "lacking_message_authenticator": len(lacking),
         "capture_point": point.where if point else None,
         "capture_point_certain": point.certain if point else False,
+        "others_answered": pair.others_answered,
     })
 
 
-def _article(word):
-    return "an" if word[:1].upper() in "AEIOU" else "a"
-
-
-def _capture_ended(exchanges, label, ports, point):
-    late = [e for e in exchanges if e.outcome == rx.CAPTURE_ENDED]
+def _capture_ended(pair, point):
+    late = [e for e in pair.exchanges if e.outcome == rx.CAPTURE_ENDED]
     if not late:
         return None
     e = late[-1]
     gap = e.capture_end - e.attempts[-1].packet.ts
-    lead = (f"{_plural(len(late), 'request')} to {label} {'was' if len(late) == 1 else 'were'} sent shortly before "
-            f"the capture stopped (the last {_secs(gap)} before)")
+    lead = (f"{_plural(len(late), 'request')} from {pair.who} to {pair.label} {'was' if len(late) == 1 else 'were'} "
+            f"sent shortly before the capture stopped (the last {_secs(gap)} before)")
     return Finding("radius.capture_ended", Status.INFO, "Capture ended", (
         f"{lead}, sooner than a reply is due ({_secs(e.reply_window)}, {e.reply_window_source}). "
         "A reply may have come after the capture stopped, so these are not counted as unanswered."),
         details={"count": len(late), "reply_window": e.reply_window, "reply_window_source": e.reply_window_source})
 
 
-def _answering(exchanges, label, ports, point):
-    answered = [e for e in exchanges if e.answered]
+def _answering(pair, point):
+    answered = [e for e in pair.exchanges if e.answered]
     if not answered:
         return None
     outcomes = Counter(e.reply.name for e in answered)
     shown = ", ".join(f"{n} {name}" for name, n in outcomes.most_common())
-    clients = list(dict.fromkeys(e.client for e in answered))
-    who = _names([client_label(c, exchanges) for c in clients], quote=False)
-    s = f"{label} answered {len(answered)} of {len(exchanges)} requests ({shown}), from {who}."
+    s = f"{pair.label} answered {len(answered)} of {len(pair.exchanges)} requests from {pair.who} ({shown})."
     return Finding("radius.answering", Status.PASS, "Server answering", s, details={
-        "answered": len(answered), "requests": len(exchanges), "answered_clients": clients,
-        "outcomes": dict(outcomes),
-    })
+        "answered": len(answered), "requests": len(pair.exchanges), "outcomes": dict(outcomes)})
 
 
 ICMP_MEANING = {
@@ -293,79 +324,118 @@ ICMP_MEANING = {
 }
 
 
-def _icmp(exchanges, label, ports, point):
-    about_requests = [(i, e) for e in exchanges for i, about in e.icmp if about == "request"]
-    about_replies = [(i, e) for e in exchanges for i, about in e.icmp if about == "reply"]
+def _icmp(pair, point):
+    about_requests = [i for e in pair.exchanges for i, about in e.icmp if about == "request"]
+    about_replies = [i for e in pair.exchanges for i, about in e.icmp if about == "reply"]
     if not about_requests and not about_replies:
         return None
     sentences = []
-    reasons = Counter(i.icmp.reason for i, _ in about_requests)
+    reasons = Counter(i.icmp.reason for i in about_requests)
     for reason, n in reasons.most_common():
-        senders = list(dict.fromkeys(i.src for i, e in about_requests if i.icmp.reason == reason))
-        server = about_requests[0][1].server
-        by = ("from the server itself" if senders == [server]
+        senders = list(dict.fromkeys(i.src for i in about_requests if i.icmp.reason == reason))
+        by = ("from the server itself" if senders == [pair.server]
               else f"from {_names(senders, quote=False)} (not the server: a router or firewall on the way)")
         meaning = ICMP_MEANING.get(reason, "the request could not be delivered")
-        sentences.append(f"Requests to {label} drew ICMP {reason} {_times(n)}, {by}: {meaning}.")
+        sentences.append(f"Requests from {pair.who} to {pair.label} drew ICMP {reason} {_times(n)}, {by}: {meaning}.")
     if about_replies:
-        sentences.append(f"{_plural(len(about_replies), 'reply', 'replies')} from {label} drew ICMP port unreachable "
-                         "from the client: it had stopped listening, usually because it had given up waiting.")
+        sentences.append(f"{_plural(len(about_replies), 'reply', 'replies')} from {pair.label} drew ICMP port "
+                         f"unreachable from {pair.client}: it had stopped listening, usually because it had given up "
+                         "waiting.")
     status = Status.FAIL if about_requests else Status.WARN
     return Finding("radius.icmp", status, "ICMP errors", " ".join(sentences), details={
-        "reasons": dict(reasons), "senders": list(dict.fromkeys(i.src for i, _ in about_requests)),
-        "about_replies": len(about_replies),
-    })
+        "reasons": dict(reasons), "senders": list(dict.fromkeys(i.src for i in about_requests)),
+        "about_replies": len(about_replies)})
 
 
-def _message_authenticator(exchanges, label, ports, point):
-    access = [e for e in exchanges if e.code in (ACCESS_REQUEST, STATUS_SERVER)]
-    if not access:
+BLASTRADIUS = "the BlastRADIUS attack (CVE-2024-3596)"
+
+
+def _message_authenticator(pair, point):
+    """Requests with no Message-Authenticator at all."""
+    signed = [e for e in pair.exchanges if e.code in SIGNED_REQUESTS]
+    if not signed:
         return None
-    lacking = [e for e in access if not e.request.has(MESSAGE_AUTHENTICATOR)]
+    lacking = [e for e in signed if e.request.position(MESSAGE_AUTHENTICATOR) is None]
     if not lacking:
         return Finding("radius.message_authenticator", Status.PASS, "Message-Authenticator",
-                       f"Present on every Access-Request and Status-Server to {label} (value hidden).",
-                       details={"lacking": 0, "requests": len(access)})
-    clients = _names([client_label(c, exchanges) for c in dict.fromkeys(e.client for e in lacking)], quote=False)
-    unanswered = sum(1 for e in lacking if not e.answered)
-    s = (f"{len(lacking)} of {len(access)} Access-Requests from {clients} carry no Message-Authenticator. Servers "
-         "hardened against the BlastRADIUS attack (CVE-2024-3596) require it, and drop requests without it, "
-         "often without logging anything at the normal log level.")
+                       f"Present on every Access-Request and Status-Server from {pair.who} (value hidden).",
+                       details={"lacking": 0, "requests": len(signed)})
+    s = (f"{len(lacking)} of {len(signed)} Access-Requests from {pair.who} carry no Message-Authenticator. Servers "
+         f"hardened against {BLASTRADIUS} require it, and drop requests without it, often without logging anything "
+         "at the normal log level.")
     return Finding("radius.message_authenticator", Status.WARN, "Message-Authenticator", s, details={
-        "lacking": len(lacking), "requests": len(access), "lacking_unanswered": unanswered,
-    })
+        "lacking": len(lacking), "requests": len(signed),
+        "lacking_unanswered": sum(1 for e in lacking if not e.answered)})
 
 
-def _rejects(exchanges, label, ports, point):
-    rejected = [e for e in exchanges if e.answered and e.reply.code == ACCESS_REJECT]
+def _replies(pair):
+    return [r for e in pair.exchanges for r in ([e.reply] if e.reply else []) + e.extra_replies]
+
+
+def _reply_message_authenticator(pair, point):
+    """Replies with no Message-Authenticator at all: the side BlastRADIUS forges."""
+    replies = [r for r in _replies(pair) if r.code in (2, 3, 11)]
+    if not replies:
+        return None
+    lacking = [r for r in replies if r.position(MESSAGE_AUTHENTICATOR) is None]
+    if not lacking:
+        return Finding("radius.reply_message_authenticator", Status.PASS, "Reply Message-Authenticator",
+                       f"Present on every reply from {pair.label} to {pair.who} (value hidden).",
+                       details={"lacking": 0, "replies": len(replies)})
+    return Finding("radius.reply_message_authenticator", Status.WARN, "Reply Message-Authenticator", (
+        f"{len(lacking)} of {len(replies)} replies from {pair.label} to {pair.who} carry no Message-Authenticator. "
+        f"Without it a NAS cannot detect a forged Access-Accept, which is how {BLASTRADIUS} works; servers patched "
+        "for it add one to every reply."), details={"lacking": len(lacking), "replies": len(replies)})
+
+
+def _message_authenticator_position(pair, point):
+    """Message-Authenticator present but not the first attribute, told apart from absent."""
+    requests = [e.request for e in pair.exchanges if e.code in SIGNED_REQUESTS]
+    replies = [r for r in _replies(pair) if r.code in (2, 3, 11)]
+    late_requests = [m for m in requests if (m.position(MESSAGE_AUTHENTICATOR) or 0) > 0]
+    late_replies = [m for m in replies if (m.position(MESSAGE_AUTHENTICATOR) or 0) > 0]
+    if not late_requests and not late_replies:
+        return None
+    parts = []
+    if late_requests:
+        parts.append(f"{len(late_requests)} of {len(requests)} requests from {pair.who}")
+    if late_replies:
+        parts.append(f"{len(late_replies)} of {len(replies)} replies from {pair.label}")
+    return Finding("radius.message_authenticator_position", Status.INFO, "Message-Authenticator position", (
+        f"Message-Authenticator is present but not the first attribute in {' and '.join(parts)}. It still "
+        f"protects the message; the hardening advice after {BLASTRADIUS} is to put it first, and some patched "
+        "implementations expect that."),
+        details={"requests_not_first": len(late_requests), "replies_not_first": len(late_replies)})
+
+
+def _rejects(pair, point):
+    rejected = [e for e in pair.exchanges if e.answered and e.reply.code == ACCESS_REJECT]
     if not rejected:
         return None
     users = [e.user_name for e in rejected]
     messages = list(dict.fromkeys(m for e in rejected for m in e.reply_messages))
-    s = f"{label} rejected {_plural(len(rejected), 'Access-Request')}"
+    s = f"{pair.label} rejected {_plural(len(rejected), 'Access-Request')} from {pair.who}"
     s += f" for {_names(users)}" if any(users) else ""
-    s += f'. Reply-Message: {_names(messages)}.' if messages else ". No Reply-Message was given."
-    accepted_clients = {e.client for e in exchanges if e.answered and e.reply.code != ACCESS_REJECT
-                        and e.code == ACCESS_REQUEST}
-    all_rejected_from = [c for c in dict.fromkeys(e.client for e in rejected) if c not in accepted_clients]
+    s += f". Reply-Message: {_names(messages)}." if messages else ". No Reply-Message was given."
+    accepted = any(e.answered and e.reply.code != ACCESS_REJECT and e.code == ACCESS_REQUEST for e in pair.exchanges)
     return Finding("radius.rejects", Status.FAIL, "Access-Reject", s, details={
         "rejects": len(rejected), "users": [u for u in dict.fromkeys(users) if u], "reply_messages": messages,
-        "clients_with_no_accept": all_rejected_from,
-        "lacking_message_authenticator": sum(1 for e in rejected if not e.request.has(MESSAGE_AUTHENTICATOR)),
-    })
+        "none_accepted": not accepted,
+        "lacking_message_authenticator": sum(1 for e in rejected
+                                             if e.request.position(MESSAGE_AUTHENTICATOR) is None)})
 
 
-def _challenges(exchanges, label, ports, point):
-    n = sum(1 for e in exchanges if e.answered and e.reply.code == ACCESS_CHALLENGE)
+def _challenges(pair, point):
+    n = sum(1 for e in pair.exchanges if e.answered and e.reply.code == ACCESS_CHALLENGE)
     if not n:
         return None
     return Finding("radius.challenges", Status.INFO, "Access-Challenge",
-                   f"{label} sent {_plural(n, 'Access-Challenge')}: a multi-step login such as EAP was in progress, "
-                   "and each challenge expects a further Access-Request from the client.", details={"count": n})
+                   f"{pair.label} sent {pair.who} {_plural(n, 'Access-Challenge')}: a multi-step login such as EAP "
+                   "was in progress, and each challenge expects a further Access-Request.", details={"count": n})
 
 
-def _response_time(exchanges, label, ports, point):
-    answered = [e for e in exchanges if e.answered]
+def _response_time(pair, point):
+    answered = [e for e in pair.exchanges if e.answered]
     if not answered:
         return None
     normal = [e for e in answered if e.reply.code != ACCESS_REJECT]
@@ -382,9 +452,10 @@ def _response_time(exchanges, label, ports, point):
     if not normal:
         after = _secs(Summary.of(e.response_time for e in rejects).p50)
         return Finding("radius.response_time", Status.INFO, "Response times",
-                       f"Only Access-Rejects came back from {label}, after {after}; servers delay rejects on "
-                       "purpose, so this says nothing about the server's speed.", details=details)
-    s = f"{label}: {times.count} replies, p50 {_secs(times.p50)}, p95 {_secs(times.p95)}, slowest {_secs(times.max)}."
+                       f"Only Access-Rejects came back from {pair.label} to {pair.who}, after {after}; servers "
+                       "delay rejects on purpose, so this says nothing about the server's speed.", details=details)
+    s = (f"{pair.label} to {pair.who}: {_plural(times.count, 'reply', 'replies')}, p50 {_secs(times.p50)}, "
+         f"p95 {_secs(times.p95)}, slowest {_secs(times.max)}.")
     status = Status.PASS
     if times.p95 >= SLOW:
         status = Status.WARN
@@ -396,135 +467,153 @@ def _response_time(exchanges, label, ports, point):
     return Finding("radius.response_time", status, "Response times", s + reject_note, details=details)
 
 
-def _reply_from_elsewhere(exchanges, label, ports, point):
-    odd = [e for e in exchanges if e.reply_from_elsewhere]
+def _reply_from_elsewhere(pair, point):
+    odd = [e for e in pair.exchanges if e.reply_from_elsewhere]
     if not odd:
         return None
     sources = _names([server_key(e.reply.packet.src, e.reply.packet.sport) for e in odd], quote=False)
     return Finding("radius.reply_from_elsewhere", Status.WARN, "Reply from another address", (
-        f"{_plural(len(odd), 'reply', 'replies')} to requests sent to {label} came from {sources} instead. A NAS "
-        "discards a reply from an address it did not send to, so the user sees a timeout. Usually the server has "
-        "several addresses and answers from the wrong one, or NAT rewrites one direction only."),
+        f"{_plural(len(odd), 'reply', 'replies')} to requests {pair.who} sent to {pair.label} came from {sources} "
+        "instead. A NAS discards a reply from an address it did not send to, so the user sees a timeout. Usually "
+        "the server has several addresses and answers from the wrong one, or NAT rewrites one direction only."),
         details={"count": len(odd), "from": sources})
 
 
-def _reused_ids(exchanges, label, ports, point):
-    reused = [e for e in exchanges if e.reused_id_of is not None]
+def _reused_ids(pair, point):
+    reused = [e for e in pair.exchanges if e.reused_id_of is not None]
     if not reused:
         return None
-    clients = _names([client_label(c, exchanges) for c in dict.fromkeys(e.client for e in reused)], quote=False)
     return Finding("radius.reused_ids", Status.WARN, "Identifier reused", (
-        f"{clients} reused a request ID {_times(len(reused))} while an earlier request with that ID was still "
+        f"{pair.who} reused a request ID {_times(len(reused))} while an earlier request with that ID was still "
         "unanswered. A reply can then match only one of them; the other times out. This points at the client "
         "(too many requests in flight on one port, or a restart)."), details={"count": len(reused)})
 
 
-def _legacy_port(exchanges, label, ports, point):
-    port = exchanges[0].server_port
-    if not ports.is_legacy(port):
+def _legacy_port(pair, point):
+    if not pair.ports.is_legacy(pair.port):
         return None
     return Finding("radius.legacy_port", Status.INFO, "Legacy port", (
-        f"Port {port} is the pre-standard RADIUS port that older NASes and servers still default to (the standard "
-        "ports are 1812 and 1813). If one side uses the old port and the other the new, requests go unanswered."),
-        details={"port": port})
+        f"Port {pair.port} is the pre-standard RADIUS port that older NASes and servers still default to (the "
+        "standard ports are 1812 and 1813). If one side uses the old port and the other the new, requests go "
+        "unanswered."), details={"port": pair.port})
 
 
 # --- the shared secret --------------------------------------------------------------
 
-def _secret(exchanges, label, secret):
+def _secret(pair, secret):
+    """Check the secret against this NAS's requests and the server's replies to it: one client entry."""
     key = secret.value
-    by_client = {}
-    for e in exchanges:
-        by_client.setdefault(e.client, []).extend(radius_auth.check_request(e.request, key))
-    server_checks = []
-    for e in exchanges:
-        for reply in ([e.reply] if e.reply else []) + e.extra_replies:
-            server_checks += radius_auth.check_reply(reply, e.request, key)
-    server = _verdict(server_checks)
-    clients = {c: _verdict(checks) for c, checks in by_client.items()}
+    client_checks, resends = [], 0
+    for e in pair.exchanges:
+        client_checks += radius_auth.check_request(e.request, key)
+        distinct = {e.request.raw}
+        for a in e.attempts[1:]:
+            if a.raw in distinct:
+                resends += 1  # identical bytes: checking again adds nothing
+            else:
+                distinct.add(a.raw)
+                client_checks += radius_auth.check_request(a, key)
+    server_checks = [c for e in pair.exchanges for r in ([e.reply] if e.reply else []) + e.extra_replies
+                     for c in radius_auth.check_reply(r, e.request, key)]
+    server, server_strong = _verdict(server_checks)
+    client, client_strong = _verdict(client_checks)
     sentences = []
     if server is True:
         sentences.append(f"The secret you gave matches this server: {_count_ok(server_checks)}.")
     elif server is False:
         sentences.append(f"The secret you gave does not match this server: {_count_bad(server_checks)}.")
     elif server == "mixed":
-        sentences.append(f"The secret you gave matches some of this server's replies but not others: "
-                         f"{_count_bad(server_checks)}. Two servers may share this address, or the secret "
-                         "changed during the capture.")
+        sentences.append(f"The secret you gave matches some of this server's replies to {pair.who} but not others: "
+                         f"{_count_bad(server_checks)}. Two servers may share this address, or the secret changed "
+                         "during the capture.")
     else:
-        sentences.append("No reply from this server could be checked, so this says nothing about the server's "
-                         "own secret.")
-    for client, verdict in clients.items():
-        who = client_label(client, exchanges)
-        checks = by_client[client]
-        if verdict is True:
-            sentences.append(f"It matches the client {who}: {_count_ok(checks)}.")
-        elif verdict is False:
-            sentences.append(f"It does not match the client {who}: {_count_bad(checks)}.")
-        elif verdict == "mixed":
-            sentences.append(f"It matches some requests from the client {who} but not others: {_count_bad(checks)}.")
-        else:
-            sentences.append(f"Nothing from the client {who} could be checked (no Message-Authenticator or "
-                             "User-Password).")
-    verdicts = [server, *clients.values()]
-    if any(v is False or v == "mixed" for v in verdicts):
+        sentences.append(f"No reply from this server to {pair.who} could be checked, so this says nothing about the "
+                         "server's own secret.")
+    if client is True:
+        how = "" if client_strong else ", though only from readable text, so this is likely rather than certain"
+        sentences.append(f"It matches the client {pair.who}: {_count_ok(client_checks, resends)}{how}.")
+    elif client is False:
+        how = "" if client_strong else ", which makes a different secret likely rather than certain"
+        sentences.append(f"It does not match the client {pair.who}: {_count_bad(client_checks, resends)}{how}.")
+    elif client == "mixed":
+        sentences.append(f"It matches some requests from the client {pair.who} but not others: "
+                         f"{_count_bad(client_checks, resends)}.")
+    else:
+        sentences.append(f"Nothing from the client {pair.who} could be checked (no Message-Authenticator or "
+                         "User-Password).")
+    if any(v is False or v == "mixed" for v in (server, client)):
         status = Status.FAIL
         sentences += secret.warnings()
-    elif any(v is True for v in verdicts):
+    elif any(v is True for v in (server, client)):
         status = Status.PASS
     else:
         status = Status.SKIP
-    rejects_fail = any(not c.ok and c.message.code == ACCESS_REJECT for c in server_checks)
     return Finding("radius.secret", status, "Shared secret", " ".join(sentences), details={
-        "given": True, "server_match": server, "client_match": clients, "reject_fails": rejects_fail,
-    })
+        "given": True, "server_match": server, "server_strong": server_strong,
+        "client_match": client, "client_strong": client_strong,
+        "reject_fails": any(not c.ok and c.message.code == ACCESS_REJECT for c in server_checks)})
 
 
 def _verdict(checks):
+    """(verdict, strong): True, False, "mixed" or None, and whether a strong check backs the verdict."""
     if not checks:
-        return None
+        return None, False
     oks = {c.ok for c in checks}
-    return "mixed" if len(oks) == 2 else oks.pop()
+    if len(oks) == 2:
+        return "mixed", all(c.strong for c in checks)
+    verdict = oks.pop()
+    return verdict, any(c.strong for c in checks)
 
 
-def _count_ok(checks):
-    """e.g. "Response Authenticator verifies on 2 Access-Accepts"."""
-    methods = Counter(c.method for c in checks if c.ok)
+def _resend_note(resends):
+    return f" (and {_plural(resends, 'identical resend')})" if resends else ""
+
+
+def _where(mine, bad, noun):
+    if len(mine) == 1:
+        return f"its {noun}"
+    if bad == len(mine):
+        return f"both of its {noun}s" if len(mine) == 2 else f"all {len(mine)} of its {noun}s"
+    return f"{bad} of its {len(mine)} {noun}s"
+
+
+def _count_ok(checks, resends=0):
+    """e.g. "Message-Authenticator verifies on its Access-Request (and 2 identical resends)"."""
     parts = []
-    for method, n in methods.items():
-        noun = _msg_word(checks, method)
+    for method in dict.fromkeys(c.method for c in checks if c.ok):
+        mine = [c for c in checks if c.method == method and c.ok]
+        noun = _msg_word(mine)
+        where = _where(mine, len(mine), noun)
         if method == "User-Password":
-            parts.append("its User-Password decodes to readable text" if n == 1
-                         else f"User-Password decodes to readable text on {n} {noun}s")
+            padded = all(c.strong for c in mine)
+            parts.append("its User-Password decodes to readable text "
+                         + ("with the zero padding RFC 2865 adds" if padded
+                            else "(it fills its last block, so there is no padding to confirm it)"))
         else:
-            parts.append(f"{method} verifies on {f'its {noun}' if n == 1 else f'{n} {noun}s'}")
+            parts.append(f"{method} verifies on {where}")
+    parts[0] += _resend_note(resends)
     return " and ".join(parts)
 
 
-def _count_bad(checks):
-    """e.g. "Message-Authenticator fails on all 3 of its Access-Requests, and its User-Password decodes
-    to unprintable bytes"."""
+def _count_bad(checks, resends=0):
+    """e.g. "Message-Authenticator fails on its Access-Request (and 2 identical resends), and its
+    User-Password decodes to unprintable bytes"."""
     parts = []
     for method in dict.fromkeys(c.method for c in checks):
         mine = [c for c in checks if c.method == method]
         bad = sum(1 for c in mine if not c.ok)
         if not bad:
             continue
-        noun = _msg_word(mine, method)
-        if len(mine) == 1:
-            where = f"its {noun}"
-        elif bad == len(mine):
-            where = f"both of its {noun}s" if len(mine) == 2 else f"all {len(mine)} of its {noun}s"
-        else:
-            where = f"{bad} of its {len(mine)} {noun}s"
+        where = _where(mine, bad, _msg_word(mine))
         if method == "User-Password":
-            parts.append(f"its User-Password decodes to unprintable bytes on {where}" if len(mine) > 1
-                         else "its User-Password decodes to unprintable bytes")
+            parts.append("its User-Password decodes to unprintable bytes" if len(mine) == 1
+                         else f"its User-Password decodes to unprintable bytes on {where}")
         else:
             parts.append(f"{method} fails on {where}")
+    parts[0] += _resend_note(resends)
     return ", and ".join(parts)
 
 
-def _msg_word(checks, method):
-    names = {c.message.name for c in checks if c.method == method}
+def _msg_word(checks):
+    names = {c.message.name for c in checks}
     return names.pop() if len(names) == 1 else "message"

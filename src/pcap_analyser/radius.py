@@ -97,6 +97,19 @@ class Message:
     def has(self, attr_type):
         return self.get(attr_type) is not None
 
+    def position(self, attr_type):
+        """Where the first top-level attribute of this type comes (0 for first), or None if absent.
+        Read from the bytes, so a Vendor-Specific attribute counts once however many it holds."""
+        i, n = HEADER, 0
+        while i + 2 <= len(self.raw):
+            if self.raw[i] == attr_type:
+                return n
+            if self.raw[i + 1] < 2:
+                return None
+            i += self.raw[i + 1]
+            n += 1
+        return None
+
 
 @dataclass(frozen=True)
 class Malformed:

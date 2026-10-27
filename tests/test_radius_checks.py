@@ -7,6 +7,7 @@ runs the checks and the causes, and looks at what a reader would be told.
 
 import pcapbuild as pb
 import pytest
+import radius_sign as sign
 from radius_trace import LOOPBACK, OTHER_CLIENT, SERVER_SECRET, Trace, auth_for
 
 from pcap_analyser import radius, runbooks
@@ -62,7 +63,8 @@ def test_a_clean_login():
     assert finding(findings, "radius.answering").status == Status.PASS
     assert finding(findings, "radius.message_authenticator").status == Status.PASS
     rt = finding(findings, "radius.response_time")
-    assert rt.status == Status.PASS and rt.summary == f"{SERVER}: 1 replies, p50 4 ms, p95 4 ms, slowest 4 ms."
+    assert rt.status == Status.PASS and rt.summary == (
+        f'{SERVER} to 192.0.2.10 (NAS-Identifier "nas"): 1 reply, p50 4 ms, p95 4 ms, slowest 4 ms.')
     skip = [f for f in findings if f.check_id == "radius.secret"]
     assert len(skip) == 1 and skip[0].status == Status.SKIP and "--secret-file" in skip[0].summary
     assert not has(findings, "radius.unanswered") and causes == []
@@ -119,18 +121,18 @@ def test_secret_mismatch_confirmed_with_the_servers_secret():
     nas_resends_into_silence(t, direction="in", secret=WRONG_SECRET)
     findings, causes = run(t, SERVER_SECRET, capture_end=6.0)
     sec = finding(findings, "radius.secret")
-    assert sec.status == Status.FAIL and sec.details["client_match"] == {pb.CLIENT: False}
-    # The three attempts are identical, so the request is checked once.
+    assert sec.status == Status.FAIL and sec.details["client_match"] is False and sec.details["client_strong"]
+    # The three attempts are identical, so the request is checked once and the resends are mentioned.
     assert sec.summary.endswith("It does not match the client 192.0.2.10 (NAS-Identifier \"nas\"): "
-                                "Message-Authenticator fails on its Access-Request, and its User-Password decodes to "
-                                "unprintable bytes.")
+                                "Message-Authenticator fails on its Access-Request (and 2 identical resends), and its "
+                                "User-Password decodes to unprintable bytes.")
     local = finding(findings, "radius.secret", f"{LOOPBACK}:1812")
     assert local.status == Status.PASS and local.details["server_match"] is True
     cause = only_cause(causes)
     assert (cause.pattern, cause.label) == ("radius-secret-mismatch", "shared secret mismatch")
     assert "drops them without replying" in cause.summary
-    assert any("verifies with the secret you gave, so it is most likely this server's secret" in e
-               for e in cause.evidence)
+    assert ("RADIUS on this host's loopback address verifies with the secret you gave, so the server does use it "
+            "(unless the loopback client entry has its own).") in cause.evidence
 
 
 def test_given_the_nas_secret_the_servers_loopback_traffic_disagrees():
@@ -212,8 +214,8 @@ def test_port_unreachable():
     findings, causes = run(t)
     icmp = finding(findings, "radius.icmp")
     assert icmp.status == Status.FAIL
-    assert icmp.summary == ("Requests to 192.0.2.2:1812 drew ICMP port unreachable once, from the server itself: "
-                            "nothing is listening on that UDP port there.")
+    assert icmp.summary == ('Requests from 192.0.2.10 (NAS-Identifier "nas") to 192.0.2.2:1812 drew ICMP port '
+                            "unreachable once, from the server itself: nothing is listening on that UDP port there.")
     cause = only_cause(causes)
     assert (cause.pattern, cause.confirmed) == ("radius-port-closed", True)
     assert "1645" in cause.summary
@@ -275,7 +277,8 @@ def test_a_reject_without_the_secret():
     t.reply(2.0, 1, code=3, attrs=[(18, "Password incorrect")], secret=SERVER_SECRET)
     findings, causes = run(t)
     rej = finding(findings, "radius.rejects")
-    assert rej.summary == '192.0.2.2:1812 rejected 1 Access-Request for "dave". Reply-Message: "Password incorrect".'
+    assert rej.summary == ('192.0.2.2:1812 rejected 1 Access-Request from 192.0.2.10 (NAS-Identifier "nas") for '
+                           '"dave". Reply-Message: "Password incorrect".')
     rt = finding(findings, "radius.response_time")
     assert rt.status == Status.INFO and "after 1.0 s" in rt.summary and "delay rejects on purpose" in rt.summary
     cause = only_cause(causes)
@@ -301,7 +304,7 @@ def test_everyone_rejected_through_one_nas_raises_the_secret():
         t.reply(2.0 + i, i, code=3)
     cause = only_cause(run(t)[1])
     assert cause.pattern == "radius-user-rejected" and cause.runbook == runbooks.RADIUS_SECRET_MISMATCH
-    assert "every login through 192.0.2.10 is rejected" in cause.summary
+    assert 'every login through 192.0.2.10 (NAS-Identifier "nas") is rejected' in cause.summary
 
 
 def test_a_legacy_server_with_a_different_secret_rejects_everyone():
@@ -429,3 +432,147 @@ def test_ports_given_by_the_user_are_checked_and_labelled():
     findings = rc.check(t.analyse(radius.DEFAULT_PORTS.with_extra({11812})))
     assert finding(findings, "radius.answering", f"{pb.SERVER}:11812").summary.startswith(
         "192.0.2.2:11812 (non-standard port) answered")
+
+
+# --- per NAS: one cause per server and NAS pair -------------------------------------------
+
+def test_a_mismatch_on_one_nas_and_rejects_on_another_are_two_causes():
+    """Two NASes, one server: one NAS's secret differs (silence), the other's users are rejected."""
+    t = Trace()
+    nas_resends_into_silence(t, direction="in", secret=WRONG_SECRET)  # 192.0.2.10
+    t.request(2.0, 1, client=OTHER_CLIENT, user="erin", secret=SERVER_SECRET, password=b"bad", nas="nas-b",
+              direction="in")
+    t.reply(3.0, 1, client=OTHER_CLIENT, code=3, secret=SERVER_SECRET, direction="out")
+    for secret, mismatch_label in ((None, "shared secret mismatch, most likely"),
+                                   (SERVER_SECRET, "shared secret mismatch")):
+        findings, causes = run(t, secret, capture_end=10.0)
+        assert [(c.client, c.pattern) for c in causes] == [
+            ('192.0.2.10 (NAS-Identifier "nas")', "radius-secret-mismatch"),
+            ('198.51.100.20 (NAS-Identifier "nas-b")', "radius-user-rejected")]
+        mismatch, rejected = causes
+        assert mismatch.label == mismatch_label and mismatch.server == rejected.server == SERVER
+        assert rejected.confirmed is (secret is not None)  # the reject verifies when the secret is given
+    # With the server's secret, the other NAS's entry verifying lends support, and is labelled as such.
+    assert any("The server's replies to 198.51.100.20" in e and "for that client's entry at least" in e
+               for e in mismatch.evidence)
+
+
+def test_findings_name_their_pair():
+    t = Trace()
+    t.request(1.0, 1)
+    t.reply(1.01, 1)
+    findings, _ = run(t)
+    answering = finding(findings, "radius.answering")
+    assert answering.details["pair"] == "192.0.2.10 -> 192.0.2.2:1812"
+    assert answering.details["client_label"] == '192.0.2.10 (NAS-Identifier "nas")'
+
+
+# --- loopback and other entries: support only, never against ------------------------------
+
+@pytest.mark.parametrize("nas_secret,loopback_secret,given", [
+    (WRONG_SECRET, SERVER_SECRET, SERVER_SECRET),  # NAS fails, loopback verifies: supports the mismatch
+    (WRONG_SECRET, WRONG_SECRET, SERVER_SECRET),  # NAS fails, loopback fails too: must not weaken it
+    (WRONG_SECRET, SERVER_SECRET, WRONG_SECRET),  # NAS verifies, loopback fails: supports a mismatch
+    (WRONG_SECRET, WRONG_SECRET, WRONG_SECRET),  # NAS verifies, loopback verifies: must not be cited
+], ids=["nas-fails-local-ok", "nas-fails-local-fails", "nas-ok-local-fails", "nas-ok-local-ok"])
+def test_loopback_evidence_never_counts_against_a_mismatch(nas_secret, loopback_secret, given):
+    t = Trace()
+    t.health_check(0.5, 9, secret=loopback_secret)
+    nas_resends_into_silence(t, direction="in", secret=nas_secret)
+    _, causes = run(t, given, capture_end=6.0)
+    cause = only_cause(causes)
+    loopback_lines = [e for e in cause.evidence if "loopback" in e and "verif" in e]
+    nas_fails = nas_secret != given
+    if nas_fails:
+        assert cause.pattern == "radius-secret-mismatch"
+    if loopback_secret == given and nas_fails:
+        assert loopback_lines and "verifies with the secret you gave, so the server does use it" in loopback_lines[0]
+    elif loopback_secret != given and not nas_fails:
+        assert cause.pattern == "radius-secret-mismatch"
+        assert loopback_lines and "does not verify" in loopback_lines[0]
+    else:
+        assert not loopback_lines  # nothing about loopback when it could only argue against
+    assert not any(e.startswith("Against") and "loopback" in e for e in cause.evidence)
+
+
+# --- resend wording -------------------------------------------------------------------
+
+def test_identical_resends_are_mentioned_when_the_secret_verifies():
+    t = Trace()
+    nas_resends_into_silence(t, direction="in", secret=SERVER_SECRET)
+    sec = finding(run(t, SERVER_SECRET, capture_end=6.0)[0], "radius.secret")
+    assert ("It matches the client 192.0.2.10 (NAS-Identifier \"nas\"): Message-Authenticator verifies on its "
+            "Access-Request (and 2 identical resends) and its User-Password decodes to readable text with the zero "
+            "padding RFC 2865 adds.") in sec.summary
+
+
+# --- User-Password strength --------------------------------------------------------------
+
+def test_a_match_on_readable_text_alone_is_only_likely():
+    """A NAS that sends no Message-Authenticator, with a password that fills its block exactly."""
+    t = Trace()
+    for i in range(3):
+        t.raw(1.0 + 2 * i, pb.udp(pb.CLIENT, pb.SERVER, 40000, 1812, pb.radius(1, 5, [
+            (1, b"dave"), (2, sign.hide_password(b"exactly16bytes!!", auth_for(5), SERVER_SECRET))], auth_for(5))),
+            "in")
+    findings, causes = run(t, SERVER_SECRET, capture_end=6.0)
+    sec = finding(findings, "radius.secret")
+    assert sec.details["client_match"] is True and not sec.details["client_strong"]
+    assert "there is no padding to confirm it" in sec.summary and "likely rather than certain" in sec.summary
+    cause = only_cause(causes)
+    assert cause.pattern == "radius-no-message-authenticator"  # an old NAS, with or without a secret problem
+
+
+def test_a_padded_match_on_one_side_can_confirm_a_mismatch():
+    t = Trace()
+    t.raw(1.0, pb.udp(pb.CLIENT, pb.SERVER, 40000, 1812, pb.radius(1, 5, [
+        (1, b"dave"), (2, sign.hide_password(b"short", auth_for(5), SERVER_SECRET))], auth_for(5))), "in")
+    t.reply(2.0, 5, cport=40000, code=3, secret=WRONG_SECRET, request_auth=auth_for(5), direction="out")
+    cause = only_cause(run(t, SERVER_SECRET)[1])
+    assert (cause.pattern, cause.confirmed) == ("radius-secret-mismatch", True)
+
+
+def test_an_unpadded_match_cannot_confirm_a_mismatch():
+    t = Trace()
+    t.raw(1.0, pb.udp(pb.CLIENT, pb.SERVER, 40000, 1812, pb.radius(1, 5, [
+        (1, b"dave"), (2, sign.hide_password(b"exactly16bytes!!", auth_for(5), SERVER_SECRET))], auth_for(5))), "in")
+    t.reply(2.0, 5, cport=40000, code=3, secret=WRONG_SECRET, request_auth=auth_for(5), direction="out")
+    cause = only_cause(run(t, SERVER_SECRET)[1])
+    assert (cause.pattern, cause.label, cause.confirmed) == ("radius-secret-mismatch", "shared secret mismatch", False)
+
+
+# --- Message-Authenticator: absent and not first, told apart ---------------------------------
+
+def _with_ma_last(ident):
+    """A signed Access-Request whose Message-Authenticator comes after User-Name, not first."""
+    return sign.access_request(ident, auth_for(ident), [(1, b"dave")], SERVER_SECRET)
+
+
+def test_message_authenticator_present_but_not_first():
+    t = Trace()
+    t.raw(1.0, pb.udp(pb.CLIENT, pb.SERVER, 40000, 1812, _with_ma_last(1)))
+    t.reply(1.01, 1, secret=SERVER_SECRET)
+    findings, _ = run(t)
+    assert finding(findings, "radius.message_authenticator").status == Status.PASS  # present
+    pos = finding(findings, "radius.message_authenticator_position")
+    assert pos.status == Status.INFO  # the reply has it first, so only the request is remarked on
+    assert (pos.details["requests_not_first"], pos.details["replies_not_first"]) == (1, 0)
+    assert pos.summary.startswith("Message-Authenticator is present but not the first attribute in 1 of 1 requests")
+
+
+def test_message_authenticator_first_raises_no_position_remark():
+    t = Trace()
+    t.raw(1.0, pb.udp(pb.CLIENT, pb.SERVER, 40000, 1812, pb.radius(1, 1, [(80, b"\x00" * 16), (1, b"dave")],
+                                                                 auth_for(1))))
+    t.reply(1.01, 1, attrs=[(80, b"\x00" * 16)])
+    findings, _ = run(t)
+    assert not has(findings, "radius.message_authenticator_position")
+    assert finding(findings, "radius.reply_message_authenticator").status == Status.PASS
+
+
+def test_replies_without_message_authenticator():
+    t = Trace()
+    t.request(1.0, 1, secret=SERVER_SECRET)
+    t.reply(1.01, 1)  # unsigned: no Message-Authenticator
+    rma = finding(run(t)[0], "radius.reply_message_authenticator")
+    assert rma.status == Status.WARN and "forged Access-Accept" in rma.summary
