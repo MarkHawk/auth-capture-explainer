@@ -13,7 +13,7 @@ import pytest
 import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import ber, layers, ldap, ldap_exchange, radius_checks, radius_exchange
+from pcap_analyser import ber, layers, ldap, ldap_checks, ldap_exchange, radius_checks, radius_exchange, servers
 from pcap_analyser.capture import Capture, CaptureError, read_capture
 from pcap_analyser.causes import likely_causes
 from pcap_analyser.radius_dict import ATTRIBUTES
@@ -195,9 +195,12 @@ def test_random_ldap_streams_never_raise():
         rng.shuffle(packets)
         if rng.random() < 0.3:
             packets = packets[: rng.randrange(len(packets) + 1)]
-        for conn in ldap_exchange.analyse(packets).connections:
+        result = ldap_exchange.analyse(packets)
+        for conn in result.connections:
             for op in conn.operations:
                 op.response_time, op.first_response_time, op.entries, op.references
+        findings = ldap_checks.check(result, capture_end=10.0)
+        likely_causes(findings + servers.check(servers.summaries(ldap_result=result)))
 
 
 def test_random_bytes_through_ber_and_ldap_never_raise_anything_but_ber_errors():

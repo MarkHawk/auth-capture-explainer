@@ -106,3 +106,14 @@ def test_ldap_through_the_relay():
     assert (search.request.scope, search.request.filter, search.entries, search.result.result_code) == (
         "base", "(objectclass=*)", 1, 0)
     assert all(c.operations[-1].name == "UnbindRequest" for c in conns)
+
+
+def test_ldap_likely_cause_on_real_traffic():
+    from pcap_analyser import ldap_checks, ldap_exchange
+    from pcap_analyser.causes import likely_causes
+
+    cap = read_capture(SPIKE / "ldap-spike.pcap")
+    (cause,) = likely_causes(ldap_checks.check(ldap_exchange.analyse(cap.packets), capture_end=cap.last_ts))
+    assert (cause.pattern, cause.runbook, cause.confirmed) == (
+        "ldap-service-bind-failed", "04-ldap-bind-failure", False)  # the role rests on the DN's wording here
+    assert "cn=keycloak-svc,ou=services,dc=idlab,dc=example" in cause.summary
