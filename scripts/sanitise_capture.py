@@ -372,7 +372,7 @@ def _rewritten(recipe):
     if recipe["kind"] == "radius":
         out.append("RADIUS re-signed with sample secrets: User-Password hidden afresh with a sample password, "
                    "Message-Authenticator and Response Authenticator recomputed")
-    if recipe["kind"].startswith("ldap"):
+    if recipe["kind"] == "ldap-relay":
         out.append("LDAP simple bind passwords overwritten with '*' (scenario 04's public wrong value kept)")
     return out
 

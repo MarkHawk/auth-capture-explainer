@@ -446,7 +446,8 @@ def _tls(pair):
     kinds = Counter("StartTLS" if c.kind == lx.STARTTLS else "TLS from the start" for c in conns)
     shown = ", ".join(f"{n} {k}" for k, n in kinds.items())
     infos = [c.tls for c in conns if c.tls is not None]
-    s = (f"{plural(len(conns), 'connection')} from {pair.client} to {pair.label} use TLS ({shown}): the LDAP "
+    s = (f"{plural(len(conns), 'connection')} from {pair.client} to {pair.label} "
+         f"{'uses' if len(conns) == 1 else 'use'} TLS ({shown}): the LDAP "
          "inside cannot be read, and this tool makes no claim about it.")
     names = list(dict.fromkeys(i.server_name for i in infos if i.server_name))
     if names:
@@ -486,7 +487,7 @@ def _sasl_layer(pair):
     mechs = listing(list(dict.fromkeys(c.sasl_mechanism for c in conns if c.sasl_mechanism)), quote=False)
     return [Finding("ldap.sasl_layer", Status.INFO, "Signed or sealed (SASL)", (
         f"After a {mechs} bind, {plural(len(conns), 'connection')} from {pair.client} to {pair.label} "
-        "continue signed or sealed by the SASL security layer (Kerberos or NTLM; Active Directory's default). "
+        f"{'continues' if len(conns) == 1 else 'continue'} signed or sealed by the SASL security layer (Kerberos or NTLM; Active Directory's default). "
         "What follows the bind cannot be read, and this tool makes no claim about it."),
         next_step=READABLE_CAPTURE, details={"connections": len(conns), "mechanisms": mechs})]
 

@@ -98,6 +98,7 @@ def test_verdicts():
         def __init__(self, counts):
             self.counts = counts
             self.nothing_to_analyse = False
+            self.ldap = type("x", (), {"connections": []})()
 
         def count(self, s):
             return self.counts.get(s, 0)
@@ -126,3 +127,13 @@ def test_lines_fit_the_width_except_urls_and_tables(tmp_path):
     body = out.split("== Conversations ==")[0]
     long = [line for line in body.splitlines() if len(line) > render.WIDTH and "https://" not in line]
     assert long == []
+
+
+def test_a_verdict_never_claims_encrypted_traffic_was_fine(tmp_path):
+    c = Conversation(sport=636).handshake(1.0)
+    c.client_says(1.1, lb.client_hello("dc1.example"))
+    c.server_says(1.2, lb.server_hello(tls13=True) + lb.app_data(900))
+    c.client_says(1.3, lb.app_data(53) + lb.app_data(200))
+    c.server_says(1.4, lb.app_data(80))
+    verdict = render.verdict_line(report_for(tmp_path, c))
+    assert verdict.startswith("Verdict: no problems visible, but 1 connection is encrypted and could not be checked")

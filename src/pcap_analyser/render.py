@@ -283,7 +283,9 @@ def verdict_line(report):
     elif report.nothing_to_analyse:
         verdict = "nothing to analyse"
     else:
-        verdict = "no problems found"
+        hidden = sum(1 for c in report.ldap.connections if c.protected)
+        verdict = (f"no problems visible, but {plural(hidden, 'connection')} {'is' if hidden == 1 else 'are'} "
+                   "encrypted and could not be checked" if hidden else "no problems found")
     return f"Verdict: {verdict} ({counts})"
 
 
