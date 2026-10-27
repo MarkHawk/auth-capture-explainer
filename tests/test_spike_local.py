@@ -60,3 +60,16 @@ def test_secret_mismatch_capture():
     assert identical
     assert all(a.packet.direction == "in" for a in login.attempts)  # captured on the server
     assert all(e.answered for e in by_name(r, "Status-Server"))
+
+
+def test_real_nas_packets_verify_with_the_public_break_value():
+    """During the 05 break the NAS signs with "not-the-radius-secret", a value published in
+    identity-lab's scenario script, so checking with it reveals nothing about the lab's real secret."""
+    from pcap_analyser import radius_auth
+
+    r = analyse("radius-05-spike.pcap")
+    (login,) = by_name(r, "Access-Request")
+    right = [(c.method, c.ok) for c in radius_auth.check_request(login.request, b"not-the-radius-secret")]
+    wrong = [(c.method, c.ok) for c in radius_auth.check_request(login.request, b"some-other-value")]
+    assert right == [("Message-Authenticator", True), ("User-Password", True)]
+    assert wrong == [("Message-Authenticator", False), ("User-Password", False)]
