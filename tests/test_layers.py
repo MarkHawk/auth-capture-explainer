@@ -157,3 +157,25 @@ def test_damaged_frames_are_malformed(frame, reason):
 
 def test_raw_garbage_is_malformed():
     assert decode(b"\x10\x00", layers.LINKTYPE_RAW) == Skip("raw packet that is neither IPv4 nor IPv6", True)
+
+
+def test_ipv6_ipsec_is_ignored():
+    esp = struct.pack("!IHBB", 6 << 28, 8, 50, 64) + pb._raw(pb.CLIENT6) + pb._raw(pb.SERVER6) + b"\x00" * 8
+    assert decode(esp, layers.LINKTYPE_RAW) == Skip("IP protocol 50", False)
+
+
+def test_ipv6_extension_chain_dpkt_cannot_finish():
+    """Found by fuzzing: a damaged chain that left dpkt without a final protocol."""
+    frame = bytes.fromhex("60000000001b324020760db800000000180000000000001020010db8000000001d000000000000029c40018500"
+                          "000000000000005036ffa5823c0000")
+    assert isinstance(decode(frame, layers.LINKTYPE_RAW), Skip)
+
+
+def test_icmpv6_behind_an_extension_header():
+    request = pb.udp(pb.CLIENT6, pb.SERVER6, 40000, 1812, RADIUS)
+    icmp = pb.icmp6_unreachable(request, code=1)
+    body = icmp[40:]
+    hbh = bytes([58, 0]) + b"\x01\x04\x00\x00\x00\x00"  # next header ICMPv6
+    frame = struct.pack("!IHBB", 6 << 28, len(hbh) + len(body), 0, 64) + icmp[8:40] + hbh + body
+    p = decode(frame, layers.LINKTYPE_RAW)
+    assert p.icmp == layers.IcmpError("administratively prohibited", "udp", pb.CLIENT6, pb.SERVER6, 40000, 1812)

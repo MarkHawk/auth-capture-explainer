@@ -7,6 +7,12 @@ whatever bytes are there, so lengths are checked against the headers' own
 length fields, and IP fragments are refused rather than read as if they
 were whole datagrams.
 
+dpkt decodes upper layers eagerly and, on damaged input, can fail with
+almost any exception (fuzzing found AttributeError inside its IPsec
+handling), so each call into it catches Exception and reports the frame as
+malformed. Only the dpkt call is wrapped: a bug in this module still
+surfaces in the tests.
+
 A frame that is not wanted (ARP, another protocol) is a Skip with
 malformed=False. A frame that is damaged or cut short is a Skip with
 malformed=True, so the report can say how many were dropped and why. Nothing
@@ -192,7 +198,7 @@ def _ipv4(frame_no, ts, direction, data, cut):
     cut = cut or len(data) < total
     try:
         ip = dpkt.ip.IP(data[:total])  # no further: short frames are padded to the Ethernet minimum
-    except (dpkt.UnpackError, ValueError, struct.error):
+    except Exception:  # dpkt on damaged input: see the module docstring
         return Skip("IPv4 header could not be read", True)
     common = dict(frame=frame_no, ts=ts, direction=direction, ip_version=4,
                   src=_addr(ip.src), dst=_addr(ip.dst), ttl=ip.ttl)
@@ -208,14 +214,41 @@ def _ipv6(frame_no, ts, direction, data, cut):
         data = data[:40 + plen]
     try:
         ip = dpkt.ip6.IP6(data)
-    except (dpkt.UnpackError, ValueError, struct.error, KeyError, IndexError):
+    except Exception:  # dpkt on damaged input: see the module docstring
         return Skip("IPv6 headers could not be read", True)
+    if not hasattr(ip, "p"):  # dpkt stops at headers it cannot walk past, such as IPsec's
+        if ip.nxt in (dpkt.ip.IP_PROTO_ESP, dpkt.ip.IP_PROTO_AH):
+            return Skip(f"IP protocol {ip.nxt}", False)
+        return Skip("IPv6 extension headers could not be read", True)
     if dpkt.ip.IP_PROTO_FRAGMENT in ip.extension_hdrs and ip.extension_hdrs[dpkt.ip.IP_PROTO_FRAGMENT]:
         return Skip("IP fragment (fragments are not reassembled)", False)
     common = dict(frame=frame_no, ts=ts, direction=direction, ip_version=6,
                   src=_addr(ip.src), dst=_addr(ip.dst), ttl=ip.hlim)
-    raw = ip.data if isinstance(ip.data, bytes) else None
+    offset = _ipv6_upper_offset(data)
+    raw = data[offset:] if offset is not None else None
     return _transport(ip.p, ip.data, raw, common, cut)
+
+
+IPV6_OPTION_HEADERS = (0, 43, 60, 135, 139, 140)  # hop-by-hop, routing, destination, mobility, HIP, shim6
+MAX_IPV6_HEADERS = 16
+
+
+def _ipv6_upper_offset(data):
+    """Where the upper-layer header starts, walking the extension headers; None if they run off the end."""
+    nxt, offset = data[6], 40
+    for _ in range(MAX_IPV6_HEADERS):
+        if nxt not in (*IPV6_OPTION_HEADERS, dpkt.ip.IP_PROTO_FRAGMENT, dpkt.ip.IP_PROTO_AH):
+            return offset
+        if len(data) < offset + 2:
+            return None
+        if nxt == dpkt.ip.IP_PROTO_FRAGMENT:
+            length = 8
+        elif nxt == dpkt.ip.IP_PROTO_AH:
+            length = (data[offset + 1] + 2) * 4
+        else:
+            length = (data[offset + 1] + 1) * 8
+        nxt, offset = data[offset], offset + length
+    return None
 
 
 def _not_decoded(name, raw, header_len):
@@ -243,8 +276,8 @@ def _transport(proto, layer, raw, common, cut):
         return Packet(**common, proto="tcp", sport=layer.sport, dport=layer.dport, payload=bytes(layer.data),
                       truncated=bool(cut), tcp_seq=layer.seq, tcp_ack=layer.ack, tcp_flags=layer.flags)
     if proto in (dpkt.ip.IP_PROTO_ICMP, dpkt.ip.IP_PROTO_ICMP6):
-        body = bytes(layer) if isinstance(layer, dpkt.Packet) else (raw or b"")
-        icmp = _icmp_error(body, v6=proto == dpkt.ip.IP_PROTO_ICMP6)
+        # The original bytes, not dpkt's: re-serialising a damaged decode can itself fail.
+        icmp = _icmp_error(raw or b"", v6=proto == dpkt.ip.IP_PROTO_ICMP6)
         if icmp is None:
             return Skip("ICMP other than destination unreachable", False)
         return Packet(**common, proto="icmp", icmp=icmp, truncated=bool(cut))
