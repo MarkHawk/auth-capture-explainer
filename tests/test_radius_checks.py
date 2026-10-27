@@ -105,7 +105,7 @@ def test_secret_mismatch_seen_on_the_server():
     assert (cause.pattern, cause.confirmed, cause.runbook) == (
         "radius-secret-mismatch", False, runbooks.RADIUS_SECRET_MISMATCH)
     assert cause.server == SERVER
-    assert cause.summary.startswith("The server receives 192.0.2.10's requests and stays silent, while it answers "
+    assert cause.summary.startswith("The server receives the requests from 192.0.2.10 and stays silent, while it answers "
                                     "others, which is how a RADIUS server treats requests it cannot authenticate")
     assert "unknown client" in cause.summary
     assert cause.evidence[0] == ("For a secret mismatch: the request was resent twice and never answered; no ICMP "

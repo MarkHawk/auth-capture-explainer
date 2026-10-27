@@ -149,8 +149,8 @@ def _secret_confirmed(found):
             f"Set the secret on {who} again from the same source as the server's client entry: paste it rather "
             "than retype it, and check for trailing spaces.",
             runbooks.RADIUS_SECRET_MISMATCH, confirmed,
-            [f"For a secret mismatch: the server's replies verify with the secret you gave, and {who}'s requests "
-             "do not."], explains)
+            [f"For a secret mismatch: the server's replies verify with the secret you gave, and the requests from "
+             f"{who} do not."], explains)
     if server is False and client is True:
         confirmed = d["server_strong"] and d["client_strong"]
         summary = (f"{who} uses the secret you gave, but the server's replies to it are made with a different one: "
@@ -165,10 +165,10 @@ def _secret_confirmed(found):
             f"Set the secret in the server's client entry for {who} to match the NAS, from one source, then "
             "restart or reload the RADIUS server.",
             runbooks.RADIUS_SECRET_MISMATCH, confirmed,
-            [f"For a secret mismatch: {who}'s requests verify with the secret you gave, and the server's replies "
+            [f"For a secret mismatch: the requests from {who} verify with the secret you gave, and the server's replies "
              "to it do not."], explains)
     if client_bad and server is None:
-        evidence = [f"For a secret mismatch: {who}'s requests do not verify with the secret you gave."]
+        evidence = [f"For a secret mismatch: the requests from {who} do not verify with the secret you gave."]
         evidence += support.matches_elsewhere
         evidence.append("Not settled: no reply to this NAS could be checked, so this assumes the secret you gave "
                         "is the one in its client entry.")
@@ -186,8 +186,8 @@ def _secret_confirmed(found):
             "radius-secret-unknown", "the secret given matches neither side" if neither else "server secret differs",
             ("The secret you gave matches neither the server's replies nor the NAS's requests, so it is not the "
              "secret either side uses for this NAS. Get the current value before drawing conclusions.") if neither
-            else (f"The server's replies to {who} do not verify with the secret you gave. If you gave {who}'s "
-                  "secret, the server's client entry for it holds a different one."),
+            else (f"The server's replies to {who} do not verify with the secret you gave. If you gave the secret of "
+                  f"{who}, the server's client entry for it holds a different one."),
             "Get the current secret from where it is stored, and check again with it. To compare the two sides "
             "without reading the secret aloud, compare a hash of it.",
             runbooks.RADIUS_SECRET_MISMATCH, False, [], explains)
@@ -272,25 +272,26 @@ def _secret_ruled_out(found):
         # Elsewhere on this server the secret given does not verify: it looks like the NAS's, not the server's.
         return Cause(
             "radius-secret-mismatch", "shared secret mismatch, most likely",
-            f"{who}'s requests verify with the secret you gave, but other traffic to this server does not. The "
+            f"The requests from {who} verify with the secret you gave, but other traffic to this server does not. The "
             "secret you gave looks like the NAS's, and the server most likely holds a different one for it, so it "
             "cannot verify the requests and drops them without replying.",
             f"Compare the secret on {who} with the server's client entry for it (a hash of each, not the value), "
             "then set them the same from one source. To confirm, run this again with the server's secret.",
             runbooks.RADIUS_SECRET_MISMATCH, False,
-            [f"For a secret mismatch: {who}'s requests verify with the secret you gave.", *support.fails_elsewhere],
+            [f"For a secret mismatch: the requests from {who} verify with the secret you gave.",
+             *support.fails_elsewhere],
             ["radius.unanswered", "radius.secret", "radius.capture_point"])
     strength = "" if sec.details["client_strong"] else " (from readable text only, so not certain)"
     return Cause(
         "radius-unanswered-secret-ok", "no reply, but the secret matches",
-        f"{who}'s requests verify with the secret you gave{strength}, so if that is the secret in the server's "
+        f"The requests from {who} verify with the secret you gave{strength}, so if that is the secret in the server's "
         "client entry for it, the secret is not why they go unanswered. The likelier causes are the server not "
         "knowing this NAS (its address missing from the client list, often after NAT or a new source address) or "
         "a firewall on the way.",
         f"Check that the server's client list has {un.details['client']}'s address as the server sees it, and "
         "look in the server's log for \"unknown client\".",
         runbooks.RADIUS_SECRET_MISMATCH, False,
-        [f"Against a secret mismatch: {who}'s requests verify with the secret you gave."],
+        [f"Against a secret mismatch: the requests from {who} verify with the secret you gave."],
         ["radius.unanswered", "radius.secret", "radius.capture_point"])
 
 
@@ -315,7 +316,7 @@ def _secret_likely(found):
     evidence += found["_support"].fails_elsewhere
     if on_server:
         evidence.append("Against a firewall: the requests were seen arriving at the server.")
-        lead = f"The server receives {who}'s requests and stays silent"
+        lead = f"The server receives the requests from {who} and stays silent"
         lead += ", while it answers others" if others or loopback else ""
     else:
         evidence.append("Against a firewall, partly: the server answers other clients, though a rule for this "
