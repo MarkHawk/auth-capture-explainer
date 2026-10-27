@@ -159,10 +159,19 @@ ATTRIBUTES = {
     101: AttrDef("Error-Cause", INTEGER, ERROR_CAUSE),
 }
 
-# Only the vendor whose attributes must be hidden is named: everything else shows by length.
+# Vendor-specific attributes are labelled by number ("VSA vendor 9, type 1"), never by vendor
+# name, so the tool stays vendor-neutral. The RFC 2548 attributes keep their standard MS- names
+# because several carry secrets that must be hidden. Any other sub-attribute is shown by length,
+# except the free-text one below, which is widely used for policy strings worth reading.
 VENDOR_MICROSOFT = 311
-VENDORS = {VENDOR_MICROSOFT: "Microsoft"}
+
+
+def vsa_label(vendor, vendor_type=None):
+    return f"VSA vendor {vendor}" + (f", type {vendor_type}" if vendor_type is not None else "")
+
+
 VENDOR_ATTRIBUTES = {
+    (9, 1): AttrDef(vsa_label(9, 1), TEXT),
     (VENDOR_MICROSOFT, 1): AttrDef("MS-CHAP-Response", SECRET),
     (VENDOR_MICROSOFT, 2): AttrDef("MS-CHAP-Error", TEXT),
     (VENDOR_MICROSOFT, 7): AttrDef("MS-MPPE-Encryption-Policy", INTEGER),
@@ -200,7 +209,7 @@ class Attribute:
         if d:
             return d.name
         if self.vendor is not None:
-            return f"{VENDORS.get(self.vendor, f'vendor {self.vendor}')} attribute {self.vendor_type}"
+            return vsa_label(self.vendor, self.vendor_type)
         return f"Attribute {self.type}"
 
     def display(self):

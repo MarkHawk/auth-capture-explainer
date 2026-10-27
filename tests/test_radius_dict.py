@@ -55,8 +55,14 @@ def test_opaque_values_show_their_length(attr_type):
 def test_unknown_attributes_show_their_length_only():
     assert Attribute(250, CANARY).display() == f"({len(CANARY)} bytes)"
     unknown_vendor = Attribute(26, CANARY, 99999, 7)
-    assert unknown_vendor.display() == f"({len(CANARY)} bytes)" and unknown_vendor.name == "vendor 99999 attribute 7"
-    assert Attribute(26, CANARY, 311, 99).name == "Microsoft attribute 99"
+    assert unknown_vendor.display() == f"({len(CANARY)} bytes)" and unknown_vendor.name == "VSA vendor 99999, type 7"
+    assert Attribute(26, CANARY, 311, 99).name == "VSA vendor 311, type 99"
+    assert Attribute(26, CANARY, 12356).name == "VSA vendor 12356"  # kept whole: not in the usual layout
+
+
+def test_the_free_text_vsa_is_shown_in_full_under_a_numeric_label():
+    a = Attribute(26, b"shell:priv-lvl=15", 9, 1)
+    assert (a.name, a.display()) == ("VSA vendor 9, type 1", "shell:priv-lvl=15")
 
 
 def test_eap_shows_the_header_never_the_contents():

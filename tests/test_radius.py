@@ -39,10 +39,10 @@ def test_reply_with_two_reply_messages():
 
 def test_vendor_specific_sub_attributes():
     m = radius.decode(packet(pb.radius(3, 1, [pb.vsa(311, 16, b"k" * 34), pb.vsa(311, 2, b"E=691 R=0 V=3"),
-                                              pb.vsa(9, 1, b"vendor text")])))
+                                              pb.vsa(9, 1, b"vendor text"), pb.vsa(9, 2, b"other")])))
     assert [(a.name, a.display()) for a in m.attributes] == [
         ("MS-MPPE-Send-Key", "(hidden, 34 bytes)"), ("MS-CHAP-Error", "E=691 R=0 V=3"),
-        ("vendor 9 attribute 1", "(11 bytes)")]
+        ("VSA vendor 9, type 1", "vendor text"), ("VSA vendor 9, type 2", "(5 bytes)")]
 
 
 def test_vendor_specific_in_a_non_standard_layout_is_kept_whole():
