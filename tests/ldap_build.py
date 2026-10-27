@@ -222,6 +222,7 @@ class Conversation:
         self.client, self.cport, self.server, self.sport = client, cport, server, sport
         self.seq = {True: isn[0], False: isn[1]}  # True: the client's direction
         self.packets = []
+        self.ips = []  # (ts, raw IP bytes), for writing the conversation out as a capture file
 
     def _packet(self, ts, from_client, payload=b"", flags=dpkt.tcp.TH_ACK, seq=None):
         src, sport, dst, dport = ((self.client, self.cport, self.server, self.sport) if from_client
@@ -232,6 +233,7 @@ class Conversation:
         p = layers.decode(0, ts, layers.LINKTYPE_RAW, ip)
         assert isinstance(p, layers.Packet), p
         self.packets.append(p)
+        self.ips.append((ts, ip))
         return p
 
     def handshake(self, ts):

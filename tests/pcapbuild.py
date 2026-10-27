@@ -233,3 +233,9 @@ def vsa(vendor, vendor_type, value):
 
 def int_attr(attr_type, n):
     return attr_type, struct.pack("!I", n)
+
+
+def capture_file(tmp_path, name, *sources, linktype=101):
+    """Write the raw IP packets of traces or conversations (anything with .ips) to a pcap, in time order."""
+    timed = sorted((ts, ip) for source in sources for ts, ip in source.ips)
+    return write(tmp_path, name, pcap(timed, linktype=linktype))

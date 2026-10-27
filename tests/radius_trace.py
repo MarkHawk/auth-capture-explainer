@@ -23,11 +23,13 @@ def auth_for(ident, salt=0):
 class Trace:
     def __init__(self):
         self.packets = []
+        self.ips = []  # (ts, raw IP bytes), for writing the trace out as a capture file
 
     def raw(self, ts, ip, direction=None):
         p = layers.decode(len(self.packets) + 1, ts, layers.LINKTYPE_RAW, ip, direction)
         assert isinstance(p, layers.Packet)
         self.packets.append(p)
+        self.ips.append((ts, ip))
         return p
 
     def request(self, ts, ident, user="dave", code=1, client=pb.CLIENT, cport=40000, server=pb.SERVER,
