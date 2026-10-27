@@ -19,6 +19,7 @@ each packet is kept, because which way a packet went on the capturing host
 helps say where a capture was taken.
 """
 
+import io
 import os
 import pathlib
 import struct
@@ -80,14 +81,8 @@ class Capture:
     first_malformed: dict = field(default_factory=dict)  # reason -> first frame number
     notes: list = field(default_factory=list)  # file-level problems and remarks, as sentences
     stopped_early: bool = False
-
-    @property
-    def first_ts(self):
-        return min((p.ts for p in self.packets), default=None)
-
-    @property
-    def last_ts(self):
-        return max((p.ts for p in self.packets), default=None)
+    first_ts: float = None  # of the decoded packets, kept when the packets themselves are let go
+    last_ts: float = None
 
     def skip(self, frame_no, skip):
         if skip.malformed:
@@ -107,20 +102,36 @@ def read_capture(path, limits=None):
         raise CaptureError(f"cannot open {path.name}: {e.strerror or e}") from e
     with f:
         size = os.fstat(f.fileno()).st_size
-        if size > limits.max_bytes:
-            raise CaptureError(
-                f"{path.name} is {size / MiB:.0f} MiB, over the {limits.max_bytes / MiB:.0f} MiB limit"
-            )
-        head = f.read(4)
-        if len(head) < 4:
-            raise CaptureError(f"{path.name} is empty or too short to be a capture")
-        if head in PCAP_MAGIC:
-            cap, records = Capture(path.name, "pcap", size), _pcap_records(f, head)
-        elif head == PCAPNG_SHB:
-            cap, records = Capture(path.name, "pcapng", size), _pcapng_records(f)
-        else:
-            raise CaptureError(f"{path.name} is not a pcap or pcapng capture: {_what_is_it(head + f.read(4))}")
-        _read(cap, records, limits)
+        _check_size(path.name, size, limits)
+        return _from_file(f, path.name, size, limits)
+
+
+def read_stream(stream, name="standard input", limits=None):
+    """Read a capture from a binary stream, such as tcpdump -w - piped in. The size limit applies as it
+    reads, so an endless stream stops at the limit rather than filling memory."""
+    limits = limits or Limits()
+    data = stream.read(limits.max_bytes + 1)
+    _check_size(name, len(data), limits)
+    return _from_file(io.BytesIO(data), name, len(data), limits)
+
+
+def _check_size(name, size, limits):
+    if size > limits.max_bytes:
+        raise CaptureError(f"{name} is over the {limits.max_bytes / MiB:.0f} MiB limit"
+                           + (f" ({size / MiB:.0f} MiB)" if size > limits.max_bytes + 1 else ""))
+
+
+def _from_file(f, name, size, limits):
+    head = f.read(4)
+    if len(head) < 4:
+        raise CaptureError(f"{name} is empty or too short to be a capture")
+    if head in PCAP_MAGIC:
+        cap, records = Capture(name, "pcap", size), _pcap_records(f, head)
+    elif head == PCAPNG_SHB:
+        cap, records = Capture(name, "pcapng", size), _pcapng_records(f)
+    else:
+        raise CaptureError(f"{name} is not a pcap or pcapng capture: {_what_is_it(head + f.read(4))}")
+    _read(cap, records, limits)
     return cap
 
 
@@ -153,6 +164,8 @@ def _read(cap, records, limits):
             cap.skip(cap.frames, result)
         else:
             cap.packets.append(result)
+            cap.first_ts = ts if cap.first_ts is None else min(cap.first_ts, ts)
+            cap.last_ts = ts if cap.last_ts is None else max(cap.last_ts, ts)
 
 
 CUT_SHORT = ("The file ends part-way through a packet: the capture was cut short (copied while still being "

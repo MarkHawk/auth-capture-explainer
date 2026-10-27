@@ -155,7 +155,7 @@ def test_pcapng_with_a_bad_byte_order_mark(tmp_path):
 
 def test_file_over_the_size_limit_is_refused_before_reading(tmp_path):
     path = pb.write(tmp_path, "big.pcap", three_packets())
-    with pytest.raises(CaptureError, match="over the 0 MiB limit"):
+    with pytest.raises(CaptureError, match="big.pcap is over the 0 MiB limit"):
         read_capture(path, Limits(max_bytes=100))
 
 
@@ -233,3 +233,24 @@ def test_pcapng_packet_for_an_undescribed_interface(tmp_path):
 def test_pcapng_simple_packet_block_before_any_interface(tmp_path):
     cap = read_capture(pb.write(tmp_path, "a.pcapng", pb.pcapng(pb.spb(frame()))))
     assert cap.frames == 0 and "no interface described" in cap.notes[0]
+
+
+def test_reading_from_a_stream():
+    import io
+    cap = capture.read_stream(io.BytesIO(three_packets()))
+    assert (cap.name, cap.frames) == ("standard input", 3)
+
+
+def test_a_stream_over_the_limit_stops_at_the_limit():
+    import io
+
+    class Endless(io.RawIOBase):
+        read_sizes = []
+
+        def read(self, n=-1):
+            self.read_sizes.append(n)
+            return b"\xd4" * n
+
+    with pytest.raises(CaptureError, match="standard input is over the 0 MiB limit"):
+        capture.read_stream(Endless(), limits=Limits(max_bytes=1000))
+    assert Endless.read_sizes == [1001]
