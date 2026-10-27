@@ -11,8 +11,9 @@ import random
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import layers
+from pcap_analyser import layers, radius_exchange
 from pcap_analyser.capture import Capture, CaptureError, read_capture
+from pcap_analyser.radius_dict import ATTRIBUTES
 
 SEED = 20261027
 RADIUS = b"\x01\x07\x00\x14" + b"A" * 16
@@ -107,3 +108,39 @@ def test_random_frames_never_raise(linktype):
             frame = bytes(b[:rng.randrange(len(b) + 1)])
         result = layers.decode(1, 0.0, linktype, frame)
         assert isinstance(result, (layers.Packet, layers.Skip))
+
+
+def radius_templates():
+    attrs = [(t, b"\x00\x00\x00\x01") for t in ATTRIBUTES if t != 26]
+    return [
+        pb.radius(1, 1, attrs[:40]),
+        pb.radius(1, 2, attrs[40:] + [pb.vsa(311, 16, b"k" * 34), pb.vsa(311, 2, b"E=691")]),
+        pb.radius(3, 1, [(18, "denied"), (79, b"\x04\x07\x00\x04"), (97, b"\x00\x40" + b"\x20" * 8)]),
+        pb.radius(4, 9, [(40, b"\x00\x00\x00\x01"), (44, "s"), (55, b"\xff\xff\xff\xff"), (64, b"\x01\x00\x00\x0d")]),
+    ]
+
+
+def test_random_radius_never_raises():
+    """Mutated RADIUS through decoding, pairing, summaries and every attribute's display."""
+    rng = random.Random(SEED)
+    templates = radius_templates()
+    packets = []
+    for n in range(3000):
+        b = bytearray(rng.choice(templates))
+        for _ in range(rng.randint(1, 6)):
+            b[rng.randrange(len(b))] = rng.randrange(256)
+        payload = bytes(b[:rng.randrange(len(b) + 1)])
+        port = rng.choice((1812, 1813))
+        if rng.random() < 0.5:  # towards the server
+            ip = pb.udp(pb.CLIENT, pb.SERVER, 40000, port, payload)
+        else:
+            ip = pb.udp(pb.SERVER, pb.CLIENT, port, 40000, payload)
+        packets.append(layers.decode(n + 1, n * 0.01, layers.LINKTYPE_RAW, ip))
+    result = radius_exchange.analyse(packets, capture_end=100.0)
+    for e in result.exchanges:
+        for m in (*e.attempts, *([e.reply] if e.reply else [])):
+            for a in m.attributes:
+                assert isinstance(a.display(), str)
+        e.outcome, e.response_time, e.user_name, e.reply_messages
+    for c in result.conversations():
+        c.outcomes, c.response_times, c.reject_times
