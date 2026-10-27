@@ -1,0 +1,12 @@
+{
+  "label": "radius-accept",
+  "made": "real lab traffic",
+  "what": "dave logs in through the lab NAS and is accepted",
+  "args": [],
+  "rewritten": [
+    "IP addresses moved to 192.0.2.0/24 and MAC addresses to 00-00-5E-00-53-xx, by role; checksums recomputed",
+    "written as classic pcap, with no capture metadata",
+    "RADIUS re-signed with sample secrets: User-Password hidden afresh with a sample password, Message-Authenticator and Response Authenticator recomputed; station IDs rewritten"
+  ],
+  "secret": "sample.secret holds the secret both sides use"
+}

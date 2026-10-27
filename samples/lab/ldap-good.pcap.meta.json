@@ -1,0 +1,11 @@
+{
+  "label": "ldap-good",
+  "made": "repeated through a relay",
+  "what": "Keycloak's login binds: the service account finds dave, then dave binds",
+  "args": [],
+  "rewritten": [
+    "IP addresses moved to 192.0.2.0/24 and MAC addresses to 00-00-5E-00-53-xx, by role; checksums recomputed",
+    "written as classic pcap, with no capture metadata",
+    "LDAP simple bind passwords replaced by a fixed value, re-encoded with TCP numbers moved to match (scenario 04's public wrong value kept)"
+  ]
+}
