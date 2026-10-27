@@ -159,6 +159,23 @@ def test_an_accepted_unauthenticated_bind():
     assert only_cause(causes).pattern == "ldap-unauthenticated-bind"
 
 
+def test_an_unauthenticated_bind_outranks_and_explains_what_follows_it():
+    """An empty-password bind accepted, then a search refused for lack of rights: the bind is the cause."""
+    c = Conversation().handshake(1.0)
+    bind(c, 1.1, 1, DAVE, 0, password="")
+    search(c, 1.2, 2, "ou=people,dc=example", lb.f_eq("uid", "dave"), code=50)
+    search(c, 1.3, 3, "ou=people,dc=example", lb.f_eq("uid", "erin"))
+    findings, causes = run(c)
+    assert finding(findings, "ldap.unauthenticated_bind").details["followed_by"] == [
+        "a SearchRequest that failed with 50 insufficientAccessRights", "a search for (uid=erin) that found nothing"]
+    assert "ldap.search_failed" in ids(findings) and "ldap.search_empty" in ids(findings)
+    cause = only_cause(causes)
+    assert cause.pattern == "ldap-unauthenticated-bind"
+    assert ("followed on the same connection by a SearchRequest that failed with 50 insufficientAccessRights, and "
+            "a search for (uid=erin) that found nothing: an unauthenticated bind carries only anonymous rights"
+            ) in cause.summary
+
+
 def test_a_refused_unauthenticated_bind_is_flagged_but_not_a_bind_failure():
     c = Conversation().handshake(1.0)
     bind(c, 1.1, 1, DAVE, 53, "unauthenticated bind (DN with no password) disallowed", password="")

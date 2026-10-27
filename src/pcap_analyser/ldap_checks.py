@@ -236,9 +236,33 @@ def _unauthenticated(pair):
                   "The application should still reject an empty password before it binds.")
         else:
             s += ". No response was captured."
+        after = _after_on_connection(pair, op) if accepted else []
+        if after:
+            s += f" On the same connection it was followed by {listing(after, quote=False)}."
         out.append(Finding("ldap.unauthenticated_bind", Status.FAIL if accepted else Status.WARN,
-                           "Unauthenticated bind", s, details={"dn": req.dn, "accepted": accepted}))
+                           "Unauthenticated bind", s, details={"dn": req.dn, "accepted": accepted, "followed_by": after}))
     return out
+
+
+def _after_on_connection(pair, op):
+    """What went wrong after op on its connection, up to the next bind: failed results and empty searches.
+    After an unauthenticated bind these follow from it, as it carries only anonymous rights."""
+    for conn in pair.connections:
+        if op not in conn.operations:
+            continue
+        out = []
+        for later in conn.operations[conn.operations.index(op) + 1:]:
+            if later.request.op == ldap.BIND_REQUEST:
+                break
+            if not later.answered:
+                continue
+            what = later.request.extended_name or later.name
+            if later.result.result_code not in (0, 5, 6):
+                out.append(f"a {what} that failed with {ldap_codes.describe(later.result.result_code)}")
+            elif later.request.op == ldap.SEARCH_REQUEST and later.entries == 0:
+                out.append(f"a search for {later.request.filter} that found nothing")
+        return out
+    return []
 
 
 # --- searches and other operations ------------------------------------------------------------

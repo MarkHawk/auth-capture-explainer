@@ -611,11 +611,15 @@ def _ldap_unauthenticated(found):
     f = next(iter(_all(found, "ldap.unauthenticated_bind", Status.FAIL)), None)
     if not f:
         return None
+    after = f.details.get("followed_by") or []
+    followed = (f" It was followed on the same connection by {', and '.join(after)}: an unauthenticated bind carries "
+                "only anonymous rights, so those follow from it rather than from the account's permissions or the "
+                "user's entry.") if after else ""
     return Cause(
         "ldap-unauthenticated-bind", "unauthenticated bind accepted",
         f"The application sent a bind as {f.details['dn']} with an empty password, and the directory accepted it as "
         "an unauthenticated bind. That proves nothing about the password: if the application takes it as a "
-        "successful login, anyone can log in as anyone by leaving the password empty.",
+        f"successful login, anyone can log in as anyone by leaving the password empty.{followed}",
         "Make the application reject an empty password before it binds, and set the directory to refuse "
         "unauthenticated binds.",
         None, True, ["Direct: a simple bind with a DN, a zero-length password and resultCode 0."],
@@ -720,10 +724,10 @@ LDAP_PATTERNS = (
     _ldap_service_bind,
     _ldap_user_bind,
     _ldap_bind_unknown_role,
+    _ldap_unauthenticated,  # above the causes it can explain: missing permission, a user not found
     _ldap_dn_missing,
     _ldap_access,
     _ldap_bind_needed,
-    _ldap_unauthenticated,
     _ldap_user_not_found,
     _ldap_tls_failed,
     _ldap_starttls_refused,
