@@ -11,9 +11,11 @@ import random
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import layers, radius_exchange
+from pcap_analyser import layers, radius_checks, radius_exchange
 from pcap_analyser.capture import Capture, CaptureError, read_capture
+from pcap_analyser.causes import likely_causes
 from pcap_analyser.radius_dict import ATTRIBUTES
+from pcap_analyser.secret import Secret
 
 SEED = 20261027
 RADIUS = b"\x01\x07\x00\x14" + b"A" * 16
@@ -144,3 +146,23 @@ def test_random_radius_never_raises():
         e.outcome, e.response_time, e.user_name, e.reply_messages
     for c in result.conversations():
         c.outcomes, c.response_times, c.reject_times
+
+
+def test_random_radius_through_checks_and_causes_never_raises():
+    """The same mutated traffic, with and without a secret, all the way to likely causes."""
+    rng = random.Random(SEED + 1)
+    templates = radius_templates()
+    packets = []
+    for n in range(2000):
+        b = bytearray(rng.choice(templates))
+        for _ in range(rng.randint(0, 4)):
+            b[rng.randrange(len(b))] = rng.randrange(256)
+        payload = bytes(b[:rng.randrange(len(b) + 1)])
+        if rng.random() < 0.5:
+            ip = pb.udp(pb.CLIENT, pb.SERVER, 40000 + rng.randrange(2), 1812, payload)
+        else:
+            ip = pb.udp(pb.SERVER, pb.CLIENT, 1812, 40000 + rng.randrange(2), payload)
+        packets.append(layers.decode(n + 1, n * 0.5, layers.LINKTYPE_RAW, ip, rng.choice(("in", "out", None))))
+    result = radius_exchange.analyse(packets, capture_end=1100.0)
+    for secret in (None, Secret(b"fuzz-secret", "test")):
+        likely_causes(radius_checks.check(result, secret))
