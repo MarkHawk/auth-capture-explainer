@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from pcap_analyser import __version__, ldap_exchange, radius, radius_exchange
+from pcap_analyser import __version__, demo, ldap_exchange, radius, radius_exchange
 from pcap_analyser import secret as secrets
 from pcap_analyser.analyse import Options, analyse
 from pcap_analyser.capture import CaptureError, Limits, MiB, read_capture, read_stream
@@ -41,7 +41,8 @@ def build_parser():
         description="Read a packet capture and explain RADIUS and LDAP authentication failures in plain English. "
                     "Fully offline: it reads the file and nothing else.",
         epilog="Exit status: 0 no failed checks, 1 at least one FAIL, 2 the capture or the secret could not be "
-               "read, 3 the capture holds no RADIUS or LDAP to analyse, 130 interrupted.",
+               "read, 3 the capture holds no RADIUS or LDAP to analyse, 130 interrupted. New to the tool? Run "
+               "'pcap-analyser demo' to see it on bundled captures (to read a file called demo, write ./demo).",
     )
     p.add_argument("capture", help="the .pcap or .pcapng file to read; '-' reads standard input")
 
@@ -119,6 +120,8 @@ def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["demo"]:
+        return demo.run_demo(argv[1:], stdout, stderr, sys.modules[__name__])
     args = build_parser().parse_args(argv)
     try:
         options = build_options(args, terminal)

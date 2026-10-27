@@ -1,0 +1,46 @@
+{
+  "samples": [
+    {
+      "name": "radius-ok",
+      "file": "radius-ok.pcap",
+      "title": "RADIUS login accepted",
+      "args": []
+    },
+    {
+      "name": "radius-reject",
+      "file": "radius-reject.pcap",
+      "title": "RADIUS wrong password, secret checked",
+      "args": [
+        "--secret-file",
+        "{dir}/sample.secret"
+      ]
+    },
+    {
+      "name": "radius-secret",
+      "file": "radius-secret.pcap",
+      "title": "RADIUS shared secret mismatch",
+      "args": []
+    },
+    {
+      "name": "ldap-service",
+      "file": "ldap-service.pcap",
+      "title": "LDAP service account password wrong",
+      "args": []
+    },
+    {
+      "name": "ldaps",
+      "file": "ldaps.pcap",
+      "title": "LDAPS, encrypted end to end",
+      "args": [
+        "--ldap-port",
+        "1636"
+      ]
+    },
+    {
+      "name": "ad-locked",
+      "file": "ad-locked.pcap",
+      "title": "AD service account locked out (synthetic)",
+      "args": []
+    }
+  ]
+}

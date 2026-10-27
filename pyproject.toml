@@ -19,6 +19,9 @@ pcap-analyser = "pcap_analyser.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pcap_analyser = ["demo_samples/*.pcap", "demo_samples/*.json", "demo_samples/sample.secret"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

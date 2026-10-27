@@ -1,0 +1,9 @@
+{
+  "label": "ad-locked",
+  "made": "synthetic",
+  "args": [],
+  "what": "an Active Directory service account locked out (data 775); built by scripts/build_demo_samples.py, as identity-lab's OpenLDAP cannot produce Active Directory's reason codes",
+  "rewritten": [
+    "nothing: built with documentation addresses and MACs and the fixed bind password"
+  ]
+}
