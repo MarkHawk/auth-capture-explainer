@@ -30,9 +30,9 @@ RFC_ACCEPT = bytes.fromhex("0200002686fe220e7624ba2a1005f6bf9b55e0b206060000000"
 def test_rfc_2865_worked_example():
     request, accept = msg(RFC_REQUEST), msg(RFC_ACCEPT, to_server=False)
     assert ra.response_authenticator_ok(accept, request, b"xyzzy5461") is True
-    assert ra.password_looks_right(request, b"xyzzy5461") is True
+    assert ra.password_check(request, b"xyzzy5461") == (True, True)
     assert ra.response_authenticator_ok(accept, request, b"xyzzy5462") is False
-    assert ra.password_looks_right(request, b"xyzzy5462") is False
+    assert ra.password_check(request, b"xyzzy5462") == (False, False)
     assert ra.message_authenticator_ok(request, b"xyzzy5461") is None  # it carries none
 
 
@@ -45,8 +45,8 @@ def test_access_request_message_authenticator():
     request = msg(sign.access_request(1, RA, [(1, b"dave")], SECRET, password=b"letmein"))
     assert ra.message_authenticator_ok(request, SECRET) is True
     assert ra.message_authenticator_ok(request, WRONG) is False
-    assert ra.password_looks_right(request, SECRET) is True
-    assert ra.password_looks_right(request, WRONG) is False
+    assert ra.password_check(request, SECRET) == (True, True)
+    assert ra.password_check(request, WRONG) == (False, False)
 
 
 def test_status_server_message_authenticator():
@@ -92,28 +92,38 @@ def test_a_message_authenticator_of_the_wrong_size_cannot_be_checked():
 
 
 @pytest.mark.parametrize("password,expected", [
-    (b"p", True),
-    (b"exactly16bytes!!", True),
-    (b"a much longer password, over two blocks", True),
-    (b"caf\xc3\xa9 au lait", True),  # UTF-8 text is fine
-    (b"has\x00nul", False),
-    (b"\x01\x02\x03", False),
+    (b"p", (True, True)),
+    (b"a much longer password, over two blocks", (True, True)),
+    (b"caf\xc3\xa9 au lait", (True, True)),  # UTF-8 text is fine
+    (b"exactly16bytes!!", (True, False)),  # fills its block: no padding to confirm it
+    (b"thirty-two bytes, two whole blks", (True, False)),
+    (b"has\x00nul", (False, False)),
+    (b"\x01\x02\x03", (False, False)),
 ])
-def test_what_counts_as_a_readable_password(password, expected):
+def test_zero_padding_is_the_strong_signal(password, expected):
     request = msg(sign.access_request(1, RA, [], SECRET, password=password))
-    assert ra.password_looks_right(request, SECRET) is expected
+    assert ra.password_check(request, SECRET) == expected
+
+
+def test_the_wrong_secret_is_never_a_strong_match():
+    for password in (b"p", b"exactly16bytes!!", b"a much longer password, over two blocks"):
+        request = msg(sign.access_request(1, RA, [], SECRET, password=password))
+        assert ra.password_check(request, WRONG) == (False, False)
 
 
 def test_password_attribute_of_a_bad_size_cannot_be_checked():
-    assert ra.password_looks_right(msg(pb.radius(1, 1, [(2, b"\x00" * 10)])), SECRET) is None
-    assert ra.password_looks_right(msg(pb.radius(1, 1, [(1, b"dave")])), SECRET) is None
+    assert ra.password_check(msg(pb.radius(1, 1, [(2, b"\x00" * 10)])), SECRET) is None
+    assert ra.password_check(msg(pb.radius(1, 1, [(1, b"dave")])), SECRET) is None
 
 
 def test_check_request_and_check_reply_name_their_methods():
     request = msg(sign.access_request(1, RA, [(1, b"dave")], SECRET, password=b"pw"))
     reply = msg(sign.reply(3, 1, RA, [], SECRET), to_server=False)
-    assert [(c.method, c.ok) for c in ra.check_request(request, SECRET)] == [
-        ("Message-Authenticator", True), ("User-Password", True)]
+    assert [(c.method, c.ok, c.strong) for c in ra.check_request(request, SECRET)] == [
+        ("Message-Authenticator", True, True), ("User-Password", True, True)]
+    unpadded = msg(sign.access_request(1, RA, [], SECRET, password=b"exactly16bytes!!"))
+    assert [(c.method, c.ok, c.strong) for c in ra.check_request(unpadded, SECRET)][-1] == (
+        "User-Password", True, False)
     assert [(c.method, c.ok) for c in ra.check_reply(reply, request, WRONG)] == [
         ("Response Authenticator", False), ("Message-Authenticator", False)]
     bare = msg(sign.reply(2, 1, RA, [], SECRET, with_ma=False), to_server=False)

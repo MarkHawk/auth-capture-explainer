@@ -12,14 +12,19 @@ module can check:
   secret given, and needs the request in the capture.
 - Request Authenticator of Accounting, CoA and Disconnect requests (RFC 2866,
   5176): an MD5 over the request and the secret.
-- User-Password (RFC 2865): hidden by XOR with MD5(secret + Request
-  Authenticator). With the wrong secret it decodes to random bytes, so
-  whether it decodes to printable text says whether the NAS's secret is the
-  one given. The decoded password itself never leaves password_looks_right().
+- User-Password (RFC 2865): the password, padded with zero bytes to a
+  multiple of 16, hidden by XOR with MD5(secret + Request Authenticator).
+  With the wrong secret it decodes to random bytes. The strong sign of the
+  right secret is the zero padding: readable text followed by zeros up to
+  the 16-byte boundary. A password that fills its last block exactly has no
+  padding, and readable text on its own is only a likely match. The decoded
+  password itself never leaves password_check().
 
 Every check answers True (matches), False (does not match) or None (cannot
 tell: the attribute is absent, the message was cut short, or the request is
-missing). Nothing here returns, logs or raises with a value derived from the
+missing), and says whether its answer is strong. The authenticator checks
+are keyed hashes, so their answers are always strong; the User-Password
+check is strong only when it matches with padding. Nothing here returns, logs or raises with a value derived from the
 secret, and comparisons are constant-time.
 """
 
@@ -98,8 +103,13 @@ def request_authenticator_ok(msg, secret):
     return hmac.compare_digest(expected, msg.authenticator)
 
 
-def password_looks_right(msg, secret):
-    """True if User-Password decodes to printable text with this secret, False if to random bytes."""
+def password_check(msg, secret):
+    """(ok, strong), or None when there is no User-Password to check.
+
+    (True, True): readable text then zero padding to the 16-byte boundary, as RFC 2865 hides it.
+    (True, False): readable text that fills its last block, so no padding confirms it.
+    (False, False): not readable text. Almost certainly the wrong secret, but a password in a legacy
+    character set could look the same, so this alone is not called strong."""
     if msg is None or msg.code != ACCESS_REQUEST:
         return None
     attr = msg.get(USER_PASSWORD)
@@ -112,30 +122,36 @@ def password_looks_right(msg, secret):
         plain += bytes(a ^ b for a, b in zip(block, key))
         previous = block
     text = bytes(plain).rstrip(b"\x00")
+    padded = len(text) < len(plain)
     try:
         decoded = text.decode("utf-8")
     except UnicodeDecodeError:
-        return False
-    return bool(decoded) and decoded.isprintable()
+        return False, False
+    if not decoded or not decoded.isprintable():
+        return False, False
+    return True, padded
 
 
 @dataclass(frozen=True)
 class Check:
-    """The verdict on one message: which checks ran, and whether they matched."""
+    """The verdict on one message: which check ran, whether it matched, and how much that says."""
 
     message: object  # the radius.Message checked
     method: str  # "Message-Authenticator", "Response Authenticator", "Request Authenticator", "User-Password"
     ok: bool
+    strong: bool = True  # False for a User-Password verdict that rests on readable text alone
 
 
 def check_request(msg, secret):
     """Every check that applies to a request, as Checks. Empty when none can run."""
     checks = []
     for method, ok in (("Message-Authenticator", message_authenticator_ok(msg, secret)),
-                       ("Request Authenticator", request_authenticator_ok(msg, secret)),
-                       ("User-Password", password_looks_right(msg, secret))):
+                       ("Request Authenticator", request_authenticator_ok(msg, secret))):
         if ok is not None:
             checks.append(Check(msg, method, ok))
+    password = password_check(msg, secret)
+    if password is not None:
+        checks.append(Check(msg, "User-Password", *password))
     return checks
 
 
