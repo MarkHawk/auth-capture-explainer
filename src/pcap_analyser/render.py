@@ -6,7 +6,8 @@ more than one pair), the likely cause of each failing pair with its evidence
 and first step, a table of conversations, and a verdict.
 
 The JSON carries the same content in a stable shape, with schema_version for
-consumers to check. Neither ever contains the shared secret, a password or
+consumers to check, and a "code" on every finding and likely cause from the
+registry in codes.py. Neither ever contains the shared secret, a password or
 anything derived from them: the Report does not hold them.
 """
 
@@ -322,12 +323,12 @@ def report_dict(report):
         "options": _json_value(report.options),
         "seen": seen_line(report),
         "findings": [{
-            "check_id": f.check_id, "status": f.status.value, "protocol": _protocol(f), "title": f.title,
+            "code": f.check_id, "check_id": f.check_id, "status": f.status.value, "protocol": _protocol(f), "title": f.title,
             "summary": f.summary, "next_step": f.next_step, "runbook": f.runbook,
             "runbook_url": runbooks.url(f.runbook) if f.runbook else None, "details": _json_value(f.details),
         } for f in report.findings],
         "likely_causes": [{
-            "pattern": c.pattern, "label": c.label, "confirmed": c.confirmed, "client": c.client, "server": c.server,
+            "code": c.pattern, "pattern": c.pattern, "label": c.label, "confirmed": c.confirmed, "client": c.client, "server": c.server,
             "summary": c.summary, "evidence": list(c.evidence), "first_step": c.first_step, "runbook": c.runbook,
             "runbook_url": runbooks.url(c.runbook) if c.runbook else None, "explains": list(c.explains),
         } for c in report.causes],
