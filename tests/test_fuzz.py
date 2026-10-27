@@ -13,7 +13,9 @@ import pytest
 import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import ber, layers, ldap, ldap_checks, ldap_exchange, radius_checks, radius_exchange, servers
+from radius_trace import Trace
+from pcap_analyser import ber, layers, ldap, ldap_checks, ldap_exchange, radius_checks, radius_exchange, render, servers
+from pcap_analyser.analyse import Options, analyse
 from pcap_analyser.capture import Capture, CaptureError, read_capture
 from pcap_analyser.causes import likely_causes
 from pcap_analyser.radius_dict import ATTRIBUTES
@@ -215,3 +217,30 @@ def test_random_bytes_through_ber_and_ldap_never_raise_anything_but_ber_errors()
             ldap.decode(ber.read(data))
         except ber.BerError:
             pass
+
+
+def test_whole_pipeline_on_mutated_files_never_raises(tmp_path):
+    """RADIUS and LDAP together, mutated at the file level, through analysis and both renderers."""
+    t = Trace()
+    for i in range(3):
+        t.request(1.0 + 2 * i, 16, secret=b"s", password=b"pw")
+    t.request(2.0, 1)
+    t.reply(2.5, 1, code=3, attrs=[(18, "no")])
+    c = Conversation().handshake(1.0)
+    up, down = ldap_conversation_bytes()
+    c.client_says(1.1, up, split=50)
+    c.server_says(1.2, down, split=50)
+    data = pb.pcap(sorted(t.ips + c.ips), linktype=101)
+    rng = random.Random(SEED + 4)
+    path = tmp_path / "m.pcap"
+    for i in range(150):
+        b = bytearray(data)
+        for _ in range(rng.randint(1, 20)):
+            b[rng.randrange(24, len(b))] = rng.randrange(256)
+        path.write_bytes(bytes(b))
+        cap = read_or_refuse(path)
+        if cap is None:
+            continue
+        report = analyse(cap, Options(secret=Secret(b"s", "test") if i % 2 else None))
+        render.render_text(report)
+        render.render_json(report)
