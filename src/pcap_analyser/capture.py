@@ -133,7 +133,7 @@ def read_stream(stream, name="standard input", limits=None):
     cap = _from_file(io.BytesIO(b"".join(parts)), name, size, limits)
     if interrupted:
         cap.notes.append(INTERRUPTED.format(where=f"after {size} bytes of {name}"))
-    if interrupted or CUT_SHORT in cap.notes:
+    if interrupted:
         cap.stopped_early = True
     return cap
 
@@ -174,6 +174,8 @@ def _from_file(f, name, size, limits):
     else:
         raise CaptureError(f"{name} is not a pcap or pcapng capture: {_what_is_it(head + f.read(4))}")
     _read(cap, records, limits)
+    if CUT_SHORT in cap.notes:
+        cap.stopped_early = True
     return cap
 
 
