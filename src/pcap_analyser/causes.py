@@ -435,6 +435,15 @@ def _ad_suffix(d):
     return f", Active Directory code {lead}" if lead else ""
 
 
+AD_DIAGNOSTICS = ("the \"16 LDAP Interface Events\" diagnostic logging value (under "
+                  "HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Diagnostics) set to 2")
+AD_SIGNING_EVENTS = ("On Active Directory the Directory Service event log tells: event 2888 counts binds rejected for "
+                     "not being signed (2887 counts unsigned binds while signing is not yet required), and event "
+                     f"2889 names each client, but only with {AD_DIAGNOSTICS}.")
+AD_CBT_EVENTS = ("On Active Directory, events 3039 to 3041 in the Directory Service event log cover binds without "
+                 f"valid channel binding; 3039, which names each client, needs {AD_DIAGNOSTICS}.")
+
+
 def _ldap_signing(found):
     f = _bind(found, lambda d: d["signing_required"])
     if not f:
@@ -453,8 +462,7 @@ def _ldap_signing(found):
         ["For signing enforcement: resultCode 8 on a simple bind over an unencrypted connection"
          + (", and Active Directory's 00002028 says binds must be signed." if d.get("ad_leading") == "00002028"
             else "."),
-         "Not settled from the capture: which policy applies. On Active Directory the directory service event log "
-         "says (events 2887 and 2889 name clients that bind without signing)."],
+         "Not settled from the capture: which policy applies. " + AD_SIGNING_EVENTS],
         ["ldap.bind_failed"])
 
 
@@ -468,7 +476,7 @@ def _ldap_channel_binding(found):
         "client's binding to its TLS connection is missing or does not match. A TLS-inspecting proxy or a load "
         "balancer that terminates TLS between the client and the directory causes exactly this.",
         "Connect the client straight to the directory over LDAPS, with no device terminating TLS in between, and "
-        "use a client that supports channel binding (Extended Protection for Authentication).",
+        "use a client that supports channel binding (Extended Protection for Authentication). " + AD_CBT_EVENTS,
         None, True, ["Direct: the diagnosticMessage carries 80090346, the channel binding error."],
         ["ldap.bind_failed"])
 

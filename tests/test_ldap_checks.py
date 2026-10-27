@@ -231,7 +231,9 @@ def test_result_8_on_a_simple_bind_is_signing_enforcement():
         "ldap-signing-required", "LDAP signing or channel binding enforcement", False)
     assert "LDAP signing enforcement" in cause.summary and "channel binding" in cause.summary
     assert "00002028 says binds must be signed" in cause.evidence[0]
-    assert "2887 and 2889" in cause.evidence[1]
+    assert "event 2888 counts binds rejected" in cause.evidence[1]
+    assert ("2889 names each client, but only with the \"16 LDAP Interface Events\" diagnostic logging value"
+            in cause.evidence[1]) and cause.evidence[1].endswith("set to 2.")
 
 
 def test_result_8_without_an_active_directory_message():
@@ -247,6 +249,7 @@ def test_channel_binding_rejected():
                                                          "AcceptSecurityContext error, data 80090346, v4563"))
     cause = only_cause(run(c, service_dns=[SVC])[1])
     assert cause.pattern == "ldap-channel-binding" and "TLS-inspecting proxy" in cause.summary
+    assert "events 3039 to 3041" in cause.first_step and "16 LDAP Interface Events" in cause.first_step
 
 
 def test_confidentiality_required():
