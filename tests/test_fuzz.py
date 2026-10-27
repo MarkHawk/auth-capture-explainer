@@ -10,8 +10,10 @@ import random
 
 import pytest
 
+import ldap_build as lb
 import pcapbuild as pb
-from pcap_analyser import layers, radius_checks, radius_exchange
+from ldap_build import Conversation
+from pcap_analyser import ber, layers, ldap, ldap_exchange, radius_checks, radius_exchange
 from pcap_analyser.capture import Capture, CaptureError, read_capture
 from pcap_analyser.causes import likely_causes
 from pcap_analyser.radius_dict import ATTRIBUTES
@@ -166,3 +168,47 @@ def test_random_radius_through_checks_and_causes_never_raises():
     result = radius_exchange.analyse(packets, capture_end=1100.0)
     for secret in (None, Secret(b"fuzz-secret", "test")):
         likely_causes(radius_checks.check(result, secret))
+
+
+def ldap_conversation_bytes():
+    up = (lb.bind_request(1, "cn=svc,ou=services,dc=example", "x" * 20)
+          + lb.search_request(2, "ou=people,dc=example", lb.f_and(lb.f_eq("uid", "dave"), lb.f_present("cn")))
+          + lb.extended_request(3, lb.STARTTLS) + lb.client_hello("ldap.example") + lb.app_data())
+    down = (lb.bind_response(1, 49, "", "data 52e") + lb.search_entry(2, "uid=dave,dc=example", [("cn", ["D"])])
+            + lb.search_done(2) + lb.extended_response(3, 0, lb.STARTTLS) + lb.server_hello(tls13=True)
+            + lb.alert(2, 48))
+    return up, down
+
+
+def test_random_ldap_streams_never_raise():
+    """Mutated LDAP conversations through TCP reassembly, decoding, pairing and the TLS reader."""
+    rng = random.Random(SEED + 2)
+    up, down = ldap_conversation_bytes()
+    for _ in range(300):
+        c = Conversation(sport=rng.choice((389, 636))).handshake(1.0)
+        for data, from_client in ((up, True), (down, False)):
+            b = bytearray(data)
+            for _ in range(rng.randint(0, 6)):
+                b[rng.randrange(len(b))] = rng.randrange(256)
+            c.send(1.1, from_client, bytes(b[:rng.randrange(len(b) + 1)]), split=rng.randint(1, 60))
+        packets = c.numbered()
+        rng.shuffle(packets)
+        if rng.random() < 0.3:
+            packets = packets[: rng.randrange(len(packets) + 1)]
+        for conn in ldap_exchange.analyse(packets).connections:
+            for op in conn.operations:
+                op.response_time, op.first_response_time, op.entries, op.references
+
+
+def test_random_bytes_through_ber_and_ldap_never_raise_anything_but_ber_errors():
+    rng = random.Random(SEED + 3)
+    up, down = ldap_conversation_bytes()
+    for _ in range(5000):
+        b = bytearray(rng.choice((up, down)))
+        for _ in range(rng.randint(1, 8)):
+            b[rng.randrange(len(b))] = rng.randrange(256)
+        data = bytes(b[rng.randrange(len(b)):])
+        try:
+            ldap.decode(ber.read(data))
+        except ber.BerError:
+            pass

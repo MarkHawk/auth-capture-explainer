@@ -85,3 +85,24 @@ def test_likely_causes_on_real_traffic():
     assert "Against a firewall: the requests were seen arriving at the server." in broken.evidence
     (rejected,) = likely_causes(radius_checks.check(analyse("radius-reject-spike.pcap")))
     assert rejected.pattern == "radius-user-rejected"
+
+
+def test_ldap_through_the_relay():
+    """The LDAP spike: three connections through the capture relay to the lab's directory."""
+    from pcap_analyser import ldap_exchange
+
+    cap = read_capture(SPIKE / "ldap-spike.pcap")
+    conns = ldap_exchange.analyse(cap.packets).connections
+    assert [c.kind for c in conns] == ["ldap"] * 3
+    assert all(c.stream.syn_seen and not c.problems and not c.gaps for c in conns)
+    binds = [c.operations[0] for c in conns]
+    assert [(b.request.dn, b.result.result_code) for b in binds] == [
+        ("cn=keycloak-svc,ou=services,dc=idlab,dc=example", 49),  # identity-lab 04's wrong bind value
+        ("", 0),  # anonymous, before the base search
+        ("cn=nobody,ou=services,dc=idlab,dc=example", 49),  # OpenLDAP answers 49 for a missing DN too
+    ]
+    assert binds[0].request.password_length == len("not-the-bind-password")
+    search = conns[1].operations[1]
+    assert (search.request.scope, search.request.filter, search.entries, search.result.result_code) == (
+        "base", "(objectclass=*)", 1, 0)
+    assert all(c.operations[-1].name == "UnbindRequest" for c in conns)
