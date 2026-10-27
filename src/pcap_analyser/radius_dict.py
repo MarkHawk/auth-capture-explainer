@@ -20,6 +20,8 @@ import ipaddress
 import struct
 from dataclasses import dataclass
 
+from pcap_analyser.safetext import MAX_SHOWN, text  # re-exported: the RADIUS modules show text through here
+
 # Codes (RFC 2865, 2866, 5997, 5176).
 CODES = {
     1: "Access-Request",
@@ -187,7 +189,6 @@ EAP_CODES = {1: "Request", 2: "Response", 3: "Success", 4: "Failure"}
 EAP_TYPES = {1: "Identity", 2: "Notification", 3: "NAK", 4: "MD5-Challenge", 6: "GTC", 13: "TLS", 21: "TTLS",
              25: "PEAP", 26: "MSCHAPv2", 43: "FAST", 52: "PWD"}
 
-MAX_SHOWN = 120  # characters of a text value
 
 
 @dataclass(frozen=True)
@@ -271,13 +272,6 @@ def _enum(n, values):
     if values and n in values:
         return f"{values[n]} ({n})"
     return str(n)
-
-
-def text(v):
-    """A text value, with anything unprintable escaped so it cannot disturb a terminal."""
-    s = v.decode("utf-8", errors="backslashreplace")
-    s = "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in s)
-    return s if len(s) <= MAX_SHOWN else s[:MAX_SHOWN] + f"... ({len(v)} bytes)"
 
 
 def eap_summary(v):
