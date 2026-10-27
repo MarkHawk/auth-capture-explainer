@@ -279,7 +279,7 @@ def verdict_line(report):
             verdict += ", " + plural(warns, "warning") + " to review"
     elif warns:
         verdict = "no failures, " + plural(warns, "warning") + " to review"
-    elif not report.radius.exchanges and not report.ldap.connections:
+    elif report.nothing_to_analyse:
         verdict = "nothing to analyse"
     else:
         verdict = "no problems found"

@@ -80,7 +80,7 @@ def test_nothing_relevant(tmp_path):
     out = text(report)
     assert "INFO  Nothing to analyse" in out and "The busiest ports are UDP 53 (2)" in out
     assert render.verdict_line(report) == "Verdict: nothing to analyse (0 FAIL, 0 WARN, 0 PASS, 1 INFO, 0 SKIP)"
-    assert report.exit_code == 0
+    assert report.exit_code == 3  # not the same as a clean capture
 
 
 def test_ldap_conversation_row(tmp_path):
@@ -97,8 +97,7 @@ def test_verdicts():
     class R:
         def __init__(self, counts):
             self.counts = counts
-            self.radius = type("x", (), {"exchanges": [1]})()
-            self.ldap = type("x", (), {"connections": []})()
+            self.nothing_to_analyse = False
 
         def count(self, s):
             return self.counts.get(s, 0)

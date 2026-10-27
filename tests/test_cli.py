@@ -12,7 +12,7 @@ import radius_sign as sign
 from ldap_build import Conversation
 from pcap_analyser import __version__
 from pcap_analyser import secret as secrets
-from pcap_analyser.cli import EXIT_ERROR, EXIT_FAIL, EXIT_OK, main
+from pcap_analyser.cli import EXIT_ERROR, EXIT_FAIL, EXIT_NOTHING, EXIT_OK, main
 from radius_trace import SERVER_SECRET, Trace, auth_for
 
 SECRET_TEXT = SERVER_SECRET.decode()
@@ -158,8 +158,8 @@ def test_extra_ports(tmp_path):
     t.request(1.0, 1, sport=11812)
     t.reply(1.01, 1, sport=11812)
     path = pb.capture_file(tmp_path, "odd-port.pcap", t)
-    _, out, _ = run(str(path))
-    assert "Nothing to analyse" in out and "UDP 11812 (2)" in out and "--radius-port" in out
+    code, out, _ = run(str(path))
+    assert code == EXIT_NOTHING and "Nothing to analyse" in out and "UDP 11812 (2)" in out and "--radius-port" in out
     _, out, _ = run(str(path), "--radius-port", "11812")
     assert "192.0.2.2:11812 (non-standard port) answered" in out
 
@@ -308,3 +308,21 @@ def test_ctrl_c_part_way_through_a_file(good_login, monkeypatch):
     monkeypatch.setattr(capture.layers, "decode", decode_then_interrupt)
     code, out, _ = run(str(good_login))
     assert "stopped early)" in out and "Reading was interrupted (Ctrl-C) after 2 packets" in " ".join(out.split())
+
+
+def test_nothing_to_analyse_has_its_own_exit_code(tmp_path):
+    t = Trace()
+    t.raw(1.0, pb.udp(pb.CLIENT, pb.SERVER, 40000, 53, b"q"))
+    path = pb.capture_file(tmp_path, "dns.pcap", t)
+    code, out, _ = run(str(path))
+    assert code == EXIT_NOTHING == 3 and "Verdict: nothing to analyse" in out
+    code, out, _ = run(str(path), "--json")
+    assert json.loads(out)["summary"]["exit_code"] == 3
+
+
+def test_the_exit_codes_are_in_the_help(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "0 no failed checks, 1 at least one FAIL, 2 the capture or the secret could not be read, 3 the capture " \
+           "holds no RADIUS or LDAP to analyse, 130 interrupted" in help_text

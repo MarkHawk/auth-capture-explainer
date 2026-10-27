@@ -9,7 +9,7 @@ from pcap_analyser.analyse import Options, analyse
 from pcap_analyser.capture import CaptureError, Limits, MiB, read_capture, read_stream
 from pcap_analyser.render import render_json, render_text, use_colour
 
-EXIT_OK, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
+EXIT_OK, EXIT_FAIL, EXIT_ERROR, EXIT_NOTHING = 0, 1, 2, 3
 EXIT_INTERRUPTED = 130  # Ctrl-C during the analysis itself (Ctrl-C while reading analyses what was read)
 
 
@@ -41,7 +41,7 @@ def build_parser():
         description="Read a packet capture and explain RADIUS and LDAP authentication failures in plain English. "
                     "Fully offline: it reads the file and nothing else.",
         epilog="Exit status: 0 no failed checks, 1 at least one FAIL, 2 the capture or the secret could not be "
-               "read.",
+               "read, 3 the capture holds no RADIUS or LDAP to analyse, 130 interrupted.",
     )
     p.add_argument("capture", help="the .pcap or .pcapng file to read; '-' reads standard input")
 

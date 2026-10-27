@@ -44,8 +44,16 @@ class Report:
         return sum(1 for f in self.findings if f.status == status)
 
     @property
+    def nothing_to_analyse(self):
+        return any(f.check_id == "capture.nothing" for f in self.findings)
+
+    @property
     def exit_code(self):
-        return 1 if self.count(Status.FAIL) else 0
+        """1: a FAIL. 3: no RADIUS or LDAP in the capture at all, which is not the same as nothing wrong.
+        0: neither. (2, the capture could not be read, comes from the command line.)"""
+        if self.count(Status.FAIL):
+            return 1
+        return 3 if self.nothing_to_analyse else 0
 
 
 def analyse(cap, options=None):
