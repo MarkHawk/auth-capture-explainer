@@ -1,19 +1,19 @@
 # Usage reference
 
-Every option pcap-analyser accepts. The [README](../README.md) covers the
-common cases; this page is the full list. `pcap-analyser --help` prints the
+Every option auth-capture-explainer accepts. The [README](../README.md) covers the
+common cases; this page is the full list. `auth-capture-explainer --help` prints the
 same options in short form.
 
 ```
-pcap-analyser [options] <capture>
-pcap-analyser demo [name] [--json] [--verbose]
+auth-capture-explainer [options] <capture>
+auth-capture-explainer demo [name] [--json] [--verbose]
 ```
 
 ## Input
 
 | Option | What it does |
 |---|---|
-| `capture` | The `.pcap` or `.pcapng` file to read. `-` reads standard input, for example `tcpdump -w - ... \| pcap-analyser -`. |
+| `capture` | The `.pcap` or `.pcapng` file to read. `-` reads standard input, for example `tcpdump -w - ... \| auth-capture-explainer -`. |
 | `--max-size MIB` | Refuse a capture bigger than this many MiB (default 256). Standard input is read up to the limit and refused beyond it. |
 | `--max-packets N` | Stop reading after N packets (default 1000000); the report says it stopped early. |
 
@@ -89,20 +89,20 @@ a hint.
 
 ## The demo
 
-`pcap-analyser demo` runs the bundled captures and gives each one line;
-`pcap-analyser demo <name>` prints its full report, with `--json` and
+`auth-capture-explainer demo` runs the bundled captures and gives each one line;
+`auth-capture-explainer demo <name>` prints its full report, with `--json` and
 `--verbose` as above. The captures are copies of the sanitised identity-lab
 captures in [`samples/lab`](../samples/lab), and one synthetic Active
 Directory capture, which the lab (an OpenLDAP directory) cannot produce.
 
 | Name | What it shows | The command it runs, in the samples folder |
 |---|---|---|
-| `radius-ok` | RADIUS login accepted | `pcap-analyser radius-ok.pcap` |
-| `radius-reject` | RADIUS wrong password, secret checked | `pcap-analyser radius-reject.pcap --secret-file sample.secret` |
-| `radius-secret` | RADIUS shared secret mismatch | `pcap-analyser radius-secret.pcap` |
-| `ldap-service` | LDAP service account password wrong | `pcap-analyser ldap-service.pcap` |
-| `ldaps` | LDAPS, encrypted end to end | `pcap-analyser ldaps.pcap --ldap-port 1636` |
-| `ad-locked` | AD service account locked out (synthetic) | `pcap-analyser ad-locked.pcap` |
+| `radius-ok` | RADIUS login accepted | `auth-capture-explainer radius-ok.pcap` |
+| `radius-reject` | RADIUS wrong password, secret checked | `auth-capture-explainer radius-reject.pcap --secret-file sample.secret` |
+| `radius-secret` | RADIUS shared secret mismatch | `auth-capture-explainer radius-secret.pcap` |
+| `ldap-service` | LDAP service account password wrong | `auth-capture-explainer ldap-service.pcap` |
+| `ldaps` | LDAPS, encrypted end to end | `auth-capture-explainer ldaps.pcap --ldap-port 1636` |
+| `ad-locked` | AD service account locked out (synthetic) | `auth-capture-explainer ad-locked.pcap` |
 
 ## JSON
 
@@ -111,7 +111,7 @@ Directory capture, which the lab (an OpenLDAP directory) cannot produce.
 | Key | What it holds |
 |---|---|
 | `schema_version` | 1. It changes only if the shape changes in a way that breaks a reader. |
-| `tool`, `version` | `pcap-analyser` and its version. |
+| `tool`, `version` | `auth-capture-explainer` and its version. |
 | `capture` | The file's name (never its folder), format, link types, packet count, first and last packet times, and how many packets were skipped or ignored. |
 | `options` | What was asked for. For the secret, only whether one was given and where from. |
 | `seen` | One line on what the capture holds. |

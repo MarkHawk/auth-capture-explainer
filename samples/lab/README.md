@@ -74,12 +74,12 @@ checked the result:
 
 ## The sample secret
 
-`sample.secret` holds `pcap-analyser-sample-secret`, a fixed fake value that
+`sample.secret` holds `auth-capture-explainer-sample-secret`, a fixed fake value that
 the sanitiser signed these captures with. It is not, and never was, the lab's
 secret. Use it to see the secret checks work:
 
 ```
-pcap-analyser samples/lab/radius-05-broken.pcap --secret-file samples/lab/sample.secret
+auth-capture-explainer samples/lab/radius-05-broken.pcap --secret-file samples/lab/sample.secret
 ```
 
 In `radius-05-broken.pcap` the NAS signs with a second, different sample

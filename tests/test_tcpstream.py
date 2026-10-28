@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import tcpstream
+from auth_capture_explainer import tcpstream
 
 PORTS = {389}
 

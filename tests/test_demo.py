@@ -1,4 +1,4 @@
-"""`pcap-analyser demo`: the bundled captures, their one-line summaries and full reports."""
+"""`auth-capture-explainer demo`: the bundled captures, their one-line summaries and full reports."""
 
 import io
 import json
@@ -6,10 +6,10 @@ import json
 import pytest
 
 from conftest import ROOT
-from pcap_analyser import demo
-from pcap_analyser.cli import EXIT_ERROR, EXIT_FAIL, EXIT_OK, main
+from auth_capture_explainer import demo
+from auth_capture_explainer.cli import EXIT_ERROR, EXIT_FAIL, EXIT_OK, main
 
-DEMO = ROOT / "src" / "pcap_analyser" / "demo_samples"
+DEMO = ROOT / "src" / "auth_capture_explainer" / "demo_samples"
 EXPECTED = {
     "radius-ok": ("PASS", "no problems found"),
     "radius-reject": ("FAIL", "login rejected by the server"),
@@ -30,25 +30,25 @@ def test_the_list():
     code, out, err = run()
     assert code == EXIT_OK and err == ""
     lines = out.splitlines()
-    assert lines[0] == "pcap-analyser demo: 6 bundled captures, analysed offline"
+    assert lines[0] == "auth-capture-explainer demo: 6 bundled captures, analysed offline"
     rows = [line.split() for line in lines[2:8]]
     assert [r[0] for r in rows] == list(EXPECTED)
     for line, (name, (status, text)) in zip(lines[2:8], EXPECTED.items()):
         assert f"  {status}  " in line + "  " and line.rstrip().endswith(text), name
-    assert lines[-2].startswith("Full report for one capture:  pcap-analyser demo <name>")
+    assert lines[-2].startswith("Full report for one capture:  auth-capture-explainer demo <name>")
 
 
 @pytest.mark.parametrize("name", list(EXPECTED))
 def test_each_full_report(name):
     code, out, _ = run(name)
-    assert out.startswith(f"$ pcap-analyser {name}.pcap")
+    assert out.startswith(f"$ auth-capture-explainer {name}.pcap")
     assert code == (EXIT_OK if EXPECTED[name][0] in ("PASS", "INFO") else EXIT_FAIL)
     assert "\nVerdict: " in out
 
 
 def test_the_reject_sample_checks_the_secret_and_shows_how():
     _, out, _ = run("radius-reject")
-    assert out.startswith("$ pcap-analyser radius-reject.pcap --secret-file sample.secret\n")
+    assert out.startswith("$ auth-capture-explainer radius-reject.pcap --secret-file sample.secret\n")
     assert "Secret:   given from file sample.secret (never shown)" in out
     assert "How sure:  confirmed by the capture" in out
 

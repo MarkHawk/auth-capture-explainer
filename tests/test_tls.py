@@ -3,7 +3,7 @@
 import random
 
 import ldap_build as lb
-from pcap_analyser import tls
+from auth_capture_explainer import tls
 
 
 def test_client_hello_versions_and_server_name():

@@ -6,8 +6,8 @@ import pytest
 
 import pcapbuild as pb
 import radius_sign as sign
-from pcap_analyser import layers, radius
-from pcap_analyser import radius_auth as ra
+from auth_capture_explainer import layers, radius
+from auth_capture_explainer import radius_auth as ra
 
 SECRET, WRONG = b"sample-secret", b"another-secret"
 RA = bytes(range(100, 116))

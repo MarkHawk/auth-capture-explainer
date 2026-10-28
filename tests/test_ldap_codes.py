@@ -2,7 +2,7 @@
 
 import pytest
 
-from pcap_analyser import ldap_codes as lc
+from auth_capture_explainer import ldap_codes as lc
 
 AD_52E = "80090308: LdapErr: DSID-0C09044E, comment: AcceptSecurityContext error, data 52e, v4563"
 

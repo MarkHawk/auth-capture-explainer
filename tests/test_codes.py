@@ -9,11 +9,11 @@ import re
 
 import pcapbuild as pb
 from conftest import ROOT
-from pcap_analyser import codes
-from pcap_analyser.cli import main
+from auth_capture_explainer import codes
+from auth_capture_explainer.cli import main
 from radius_trace import Trace
 
-SRC = ROOT / "src" / "pcap_analyser"
+SRC = ROOT / "src" / "auth_capture_explainer"
 
 FINDINGS_SNAPSHOT = {
     "capture.fragments", "capture.link_type", "capture.malformed", "capture.note", "capture.nothing",

@@ -1,7 +1,7 @@
 """Build LDAP messages, TLS records and TCP conversations for tests.
 
 The BER encoder here is written from X.690 independently of
-pcap_analyser.ber, so the decoder is not tested against itself. TCP
+auth_capture_explainer.ber, so the decoder is not tested against itself. TCP
 conversations track sequence numbers like a real stack, and can split,
 reorder, repeat or drop segments.
 """
@@ -12,7 +12,7 @@ from dataclasses import replace
 import dpkt
 
 import pcapbuild as pb
-from pcap_analyser import layers
+from auth_capture_explainer import layers
 
 # --- BER ------------------------------------------------------------------------------
 

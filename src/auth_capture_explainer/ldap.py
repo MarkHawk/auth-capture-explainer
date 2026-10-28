@@ -23,9 +23,9 @@ binds negotiate and Active Directory uses by default.
 
 from dataclasses import dataclass, field
 
-from pcap_analyser import ber
-from pcap_analyser.ber import APPLICATION, CONTEXT, UNIVERSAL, BerError, Incomplete
-from pcap_analyser.safetext import text
+from auth_capture_explainer import ber
+from auth_capture_explainer.ber import APPLICATION, CONTEXT, UNIVERSAL, BerError, Incomplete
+from auth_capture_explainer.safetext import text
 
 OPS = {
     0: "BindRequest", 1: "BindResponse", 2: "UnbindRequest", 3: "SearchRequest", 4: "SearchResultEntry",

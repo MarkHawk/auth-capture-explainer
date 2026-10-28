@@ -10,11 +10,11 @@ only where it came from is kept.
 from collections import Counter
 from dataclasses import dataclass, field
 
-from pcap_analyser import ldap_checks, ldap_exchange, radius, radius_checks, radius_exchange, servers
-from pcap_analyser.causes import likely_causes
-from pcap_analyser.findings import Finding, Status
-from pcap_analyser.layers import LINKTYPE_NAMES
-from pcap_analyser.wording import listing, plural
+from auth_capture_explainer import ldap_checks, ldap_exchange, radius, radius_checks, radius_exchange, servers
+from auth_capture_explainer.causes import likely_causes
+from auth_capture_explainer.findings import Finding, Status
+from auth_capture_explainer.layers import LINKTYPE_NAMES
+from auth_capture_explainer.wording import listing, plural
 
 CUT_OR_DAMAGED = ("cut short", "damaged", "Stopped after", "interrupted")
 

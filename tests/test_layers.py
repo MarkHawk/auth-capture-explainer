@@ -6,8 +6,8 @@ import struct
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import layers
-from pcap_analyser.layers import Packet, Skip
+from auth_capture_explainer import layers
+from auth_capture_explainer.layers import Packet, Skip
 
 RADIUS = b"\x01\x07\x00\x14" + b"A" * 16  # a bare Access-Request header
 

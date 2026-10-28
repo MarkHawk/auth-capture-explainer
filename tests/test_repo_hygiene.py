@@ -17,7 +17,7 @@ GITHUB_ACCOUNT = re.compile(r"github\.com/[A-Za-z0-9-]+")
 # The licence names its copyright holder by design.
 PERSONAL_EXEMPT = {"LICENSE"}
 # The only places a capture may be committed: sanitised lab samples and the demo.
-CAPTURE_DIRS = ("samples/lab/", "src/pcap_analyser/demo_samples/")
+CAPTURE_DIRS = ("samples/lab/", "src/auth_capture_explainer/demo_samples/")
 
 
 def repo_files():

@@ -3,11 +3,11 @@
 import argparse
 import sys
 
-from pcap_analyser import __version__, demo, ldap_exchange, radius, radius_exchange
-from pcap_analyser import secret as secrets
-from pcap_analyser.analyse import Options, analyse
-from pcap_analyser.capture import CaptureError, Limits, MiB, read_capture, read_stream
-from pcap_analyser.render import render_json, render_text, use_colour
+from auth_capture_explainer import __version__, demo, ldap_exchange, radius, radius_exchange
+from auth_capture_explainer import secret as secrets
+from auth_capture_explainer.analyse import Options, analyse
+from auth_capture_explainer.capture import CaptureError, Limits, MiB, read_capture, read_stream
+from auth_capture_explainer.render import render_json, render_text, use_colour
 
 EXIT_OK, EXIT_FAIL, EXIT_ERROR, EXIT_NOTHING = 0, 1, 2, 3
 EXIT_INTERRUPTED = 130  # Ctrl-C during the analysis itself (Ctrl-C while reading analyses what was read)
@@ -37,12 +37,12 @@ def positive(kind):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="pcap-analyser",
+        prog="auth-capture-explainer",
         description="Read a packet capture and explain RADIUS and LDAP authentication failures in plain English. "
                     "Fully offline: it reads the file and nothing else.",
         epilog="Exit status: 0 no failed checks, 1 at least one FAIL, 2 the capture or the secret could not be "
                "read, 3 the capture holds no RADIUS or LDAP to analyse, 130 interrupted. New to the tool? Run "
-               "'pcap-analyser demo' to see it on bundled captures (to read a file called demo, write ./demo).",
+               "'auth-capture-explainer demo' to see it on bundled captures (to read a file called demo, write ./demo).",
     )
     p.add_argument("capture", help="the .pcap or .pcapng file to read; '-' reads standard input")
 
@@ -127,7 +127,7 @@ def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
         options = build_options(args, terminal)
         cap = load(args, stdin)
     except (CaptureError, secrets.SecretError) as exc:
-        print(f"pcap-analyser: {exc}", file=stderr)
+        print(f"auth-capture-explainer: {exc}", file=stderr)
         return EXIT_ERROR
     try:
         report = analyse(cap, options)
@@ -136,6 +136,6 @@ def main(argv=None, stdin=None, stdout=None, stderr=None, terminal=None):
         else:
             stdout.write(render_text(report, colour=use_colour(stdout), verbose=args.verbose))
     except KeyboardInterrupt:
-        print("pcap-analyser: interrupted", file=stderr)
+        print("auth-capture-explainer: interrupted", file=stderr)
         return EXIT_INTERRUPTED
     return report.exit_code

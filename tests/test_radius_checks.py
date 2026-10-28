@@ -10,11 +10,11 @@ import pytest
 import radius_sign as sign
 from radius_trace import LOOPBACK, OTHER_CLIENT, SERVER_SECRET, Trace, auth_for
 
-from pcap_analyser import radius, runbooks
-from pcap_analyser import radius_checks as rc
-from pcap_analyser.causes import likely_causes
-from pcap_analyser.findings import Status
-from pcap_analyser.secret import Secret
+from auth_capture_explainer import radius, runbooks
+from auth_capture_explainer import radius_checks as rc
+from auth_capture_explainer.causes import likely_causes
+from auth_capture_explainer.findings import Status
+from auth_capture_explainer.secret import Secret
 
 WRONG_SECRET = b"sample-wrong-secret"
 SERVER = f"{pb.SERVER}:1812"

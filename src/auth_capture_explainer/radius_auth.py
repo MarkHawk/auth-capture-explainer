@@ -32,8 +32,8 @@ import hashlib
 import hmac
 from dataclasses import dataclass
 
-from pcap_analyser.radius import HEADER
-from pcap_analyser.radius_dict import (
+from auth_capture_explainer.radius import HEADER
+from auth_capture_explainer.radius_dict import (
     ACCESS_REQUEST,
     ACCOUNTING_REQUEST,
     COA_REQUEST,

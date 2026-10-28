@@ -10,9 +10,9 @@ import ldap_build as lb
 import pcapbuild as pb
 import radius_sign as sign
 from ldap_build import Conversation
-from pcap_analyser import __version__
-from pcap_analyser import secret as secrets
-from pcap_analyser.cli import EXIT_ERROR, EXIT_FAIL, EXIT_NOTHING, EXIT_OK, main
+from auth_capture_explainer import __version__
+from auth_capture_explainer import secret as secrets
+from auth_capture_explainer.cli import EXIT_ERROR, EXIT_FAIL, EXIT_NOTHING, EXIT_OK, main
 from radius_trace import SERVER_SECRET, Trace, auth_for
 
 SECRET_TEXT = SERVER_SECRET.decode()
@@ -52,7 +52,7 @@ def secret_file(tmp_path):
 def test_a_clean_capture_exits_0(good_login):
     code, out, err = run(str(good_login))
     assert code == EXIT_OK and err == ""
-    assert out.startswith(f"pcap-analyser {__version__}\nCapture:  good.pcap (pcap, raw IP, 2 packets over 4 ms")
+    assert out.startswith(f"auth-capture-explainer {__version__}\nCapture:  good.pcap (pcap, raw IP, 2 packets over 4 ms")
     assert "Verdict: no problems found" in out
 
 
@@ -68,7 +68,7 @@ def test_a_failure_exits_1(no_reply):
 ])
 def test_unreadable_input_exits_2(tmp_path, make, message):
     code, out, err = run(str(make(tmp_path)))
-    assert code == EXIT_ERROR and out == "" and err.startswith(f"pcap-analyser: {message}")
+    assert code == EXIT_ERROR and out == "" and err.startswith(f"auth-capture-explainer: {message}")
 
 
 def test_errors_name_the_file_not_its_folder(tmp_path):
@@ -89,7 +89,7 @@ def test_usage_errors_exit_2(capsys):
 def test_version(capsys):
     with pytest.raises(SystemExit):
         main(["--version"])
-    assert capsys.readouterr().out == f"pcap-analyser {__version__}\n"
+    assert capsys.readouterr().out == f"auth-capture-explainer {__version__}\n"
 
 
 # --- the secret --------------------------------------------------------------------------------
@@ -205,7 +205,7 @@ def test_limits(good_login):
 def test_json(no_reply, secret_file):
     code, out, _ = run(str(no_reply), "--secret-file", str(secret_file), "--json")
     data = json.loads(out)
-    assert data["schema_version"] == 1 and data["tool"] == "pcap-analyser" and data["version"] == __version__
+    assert data["schema_version"] == 1 and data["tool"] == "auth-capture-explainer" and data["version"] == __version__
     assert data["capture"]["name"] == "silent.pcap" and data["capture"]["packets"] == 3
     assert data["options"]["secret_given"] and data["options"]["secret_source"] == "file radius.secret"
     assert {f["check_id"] for f in data["findings"]} >= {"radius.unanswered", "radius.secret"}
@@ -223,7 +223,7 @@ def test_no_colour_when_not_a_terminal(no_reply):
 def test_the_module_runs(good_login):
     import subprocess
     import sys
-    result = subprocess.run([sys.executable, "-m", "pcap_analyser", str(good_login)], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-m", "auth_capture_explainer", str(good_login)], capture_output=True, text=True)
     assert result.returncode == 0 and "Verdict: no problems found" in result.stdout
 
 
@@ -285,18 +285,18 @@ def test_standard_input_ending_part_way_through_a_packet(no_reply):
 
 
 def test_ctrl_c_during_the_analysis_exits_cleanly(good_login, monkeypatch):
-    from pcap_analyser import cli
+    from auth_capture_explainer import cli
 
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "analyse", interrupted)
     code, out, err = run(str(good_login))
-    assert (code, out, err) == (cli.EXIT_INTERRUPTED, "", "pcap-analyser: interrupted\n")
+    assert (code, out, err) == (cli.EXIT_INTERRUPTED, "", "auth-capture-explainer: interrupted\n")
 
 
 def test_ctrl_c_part_way_through_a_file(good_login, monkeypatch):
-    from pcap_analyser import capture, layers
+    from auth_capture_explainer import capture, layers
 
     real = layers.decode
 

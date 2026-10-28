@@ -30,7 +30,7 @@ First release.
   and 05.
 - Text report and `--json` with stable codes for every finding and cause.
   Exit status 0, 1, 2, 3 (nothing to analyse) or 130.
-- `pcap-analyser demo` on six bundled captures, five from identity-lab and one
+- `auth-capture-explainer demo` on six bundled captures, five from identity-lab and one
   synthetic Active Directory capture.
 - Eight sanitised identity-lab captures in `samples/lab`, with a capture
   script, a sanitiser and a test that checks every committed capture.

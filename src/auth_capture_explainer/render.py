@@ -17,14 +17,14 @@ import os
 import textwrap
 from collections import Counter
 
-from pcap_analyser import __version__, ldap, runbooks
-from pcap_analyser import ldap_exchange as lx
-from pcap_analyser import radius_exchange as rx
-from pcap_analyser.analyse import link_names
-from pcap_analyser.findings import Status
-from pcap_analyser.latency import Summary
-from pcap_analyser.radius_checks import client_label, server_label
-from pcap_analyser.wording import plural, secs
+from auth_capture_explainer import __version__, ldap, runbooks
+from auth_capture_explainer import ldap_exchange as lx
+from auth_capture_explainer import radius_exchange as rx
+from auth_capture_explainer.analyse import link_names
+from auth_capture_explainer.findings import Status
+from auth_capture_explainer.latency import Summary
+from auth_capture_explainer.radius_checks import client_label, server_label
+from auth_capture_explainer.wording import plural, secs
 
 WIDTH = 100
 SCHEMA_VERSION = 1
@@ -53,7 +53,7 @@ def render_text(report, colour=False, verbose=False):
     def paint(text, status):
         return f"\033[{COLOURS[status]}m{text}\033[0m" if colour else text
 
-    out = [f"pcap-analyser {__version__}", *_header(report)]
+    out = [f"auth-capture-explainer {__version__}", *_header(report)]
     out += ["", "== Findings =="]
     groups = _groups(report.findings, verbose)
     shown = [f for _, findings, folded in groups if folded is None for f in findings]
@@ -349,7 +349,7 @@ def report_dict(report):
     cap = report.capture
     return {
         "schema_version": SCHEMA_VERSION,
-        "tool": "pcap-analyser",
+        "tool": "auth-capture-explainer",
         "version": __version__,
         "capture": {
             "name": cap.name, "format": cap.format, "size_bytes": cap.size, "link_types": link_names(cap),

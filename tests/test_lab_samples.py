@@ -7,7 +7,7 @@ import json
 import pytest
 
 from conftest import ROOT
-from pcap_analyser.cli import main
+from auth_capture_explainer.cli import main
 
 LAB = ROOT / "samples" / "lab"
 SECRET = ["--secret-file", str(LAB / "sample.secret")]

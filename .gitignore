@@ -21,4 +21,4 @@ scratch/
 *.pcap
 *.pcapng
 !samples/lab/**/*.pcap
-!src/pcap_analyser/demo_samples/*.pcap
+!src/auth_capture_explainer/demo_samples/*.pcap

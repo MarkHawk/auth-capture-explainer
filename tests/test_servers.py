@@ -4,8 +4,8 @@ import ldap_build as lb
 from ldap_build import Conversation
 from radius_trace import OTHER_CLIENT, Trace
 
-from pcap_analyser import ldap_exchange, servers
-from pcap_analyser.findings import Status
+from auth_capture_explainer import ldap_exchange, servers
+from auth_capture_explainer.findings import Status
 
 
 def test_radius_server_summary_leaves_rejects_out_and_counts_no_reply():

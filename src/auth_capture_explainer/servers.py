@@ -13,12 +13,12 @@ delay them on purpose.
 
 from dataclasses import dataclass
 
-from pcap_analyser import radius_checks
-from pcap_analyser import radius_exchange as rx
-from pcap_analyser.findings import Finding, Status
-from pcap_analyser.latency import Summary
-from pcap_analyser.radius_dict import ACCESS_REJECT
-from pcap_analyser.wording import plural, secs
+from auth_capture_explainer import radius_checks
+from auth_capture_explainer import radius_exchange as rx
+from auth_capture_explainer.findings import Finding, Status
+from auth_capture_explainer.latency import Summary
+from auth_capture_explainer.radius_dict import ACCESS_REJECT
+from auth_capture_explainer.wording import plural, secs
 
 SLOW = 1.0  # seconds at p95, as for the pair findings
 

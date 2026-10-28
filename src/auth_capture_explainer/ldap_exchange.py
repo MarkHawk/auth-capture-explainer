@@ -23,8 +23,8 @@ unsolicited Notice of Disconnection, kept apart.
 
 from dataclasses import dataclass, field
 
-from pcap_analyser import ldap, tcpstream, tls
-from pcap_analyser.ldap import EXTENDED_RESPONSE, FINAL_RESPONSES, NO_RESPONSE, RESPONSES_FOR, SEARCH_ENTRY
+from auth_capture_explainer import ldap, tcpstream, tls
+from auth_capture_explainer.ldap import EXTENDED_RESPONSE, FINAL_RESPONSES, NO_RESPONSE, RESPONSES_FOR, SEARCH_ENTRY
 
 LDAP, STARTTLS, TLS, SASL, EMPTY, UNREADABLE = "ldap", "starttls", "tls", "sasl", "empty", "unreadable"
 

@@ -57,10 +57,10 @@ import sys
 
 import dpkt
 
-from pcap_analyser import ber, ldap, radius_auth, tcpstream, tls
-from pcap_analyser.ber import BerError
-from pcap_analyser.capture import CaptureError, frames, read_capture
-from pcap_analyser.radius_exchange import analyse as radius_analyse
+from auth_capture_explainer import ber, ldap, radius_auth, tcpstream, tls
+from auth_capture_explainer.ber import BerError
+from auth_capture_explainer.capture import CaptureError, frames, read_capture
+from auth_capture_explainer.radius_exchange import analyse as radius_analyse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "samples" / "lab"
@@ -69,8 +69,8 @@ _spec = importlib.util.spec_from_file_location("sanitise", ROOT / "scripts" / "s
 text_checks = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(text_checks)
 
-SAMPLE_SECRET = b"pcap-analyser-sample-secret"  # in samples/lab/sample.secret
-SAMPLE_WRONG_SECRET = b"pcap-analyser-sample-wrong-secret"  # the NAS's, in scenario 05
+SAMPLE_SECRET = b"auth-capture-explainer-sample-secret"  # in samples/lab/sample.secret
+SAMPLE_WRONG_SECRET = b"auth-capture-explainer-sample-wrong-secret"  # the NAS's, in scenario 05
 PUBLIC_BIND_VALUES = {b"not-the-bind-password"}  # published in identity-lab's scenario 04
 FIXED_BIND_PASSWORD = b"sanitised"  # every other bind password becomes this, whatever its length was
 DOC_MAC = bytes.fromhex("00005e0053")  # RFC 7042: 00-00-5E-00-53-00 to -FF are for documentation

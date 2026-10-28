@@ -24,11 +24,11 @@ import ipaddress
 from collections import Counter
 from dataclasses import dataclass
 
-from pcap_analyser import radius_auth
-from pcap_analyser import radius_exchange as rx
-from pcap_analyser.findings import Finding, Status
-from pcap_analyser.latency import Summary
-from pcap_analyser.radius_dict import (
+from auth_capture_explainer import radius_auth
+from auth_capture_explainer import radius_exchange as rx
+from auth_capture_explainer.findings import Finding, Status
+from auth_capture_explainer.latency import Summary
+from auth_capture_explainer.radius_dict import (
     ACCESS_CHALLENGE,
     ACCESS_REJECT,
     ACCESS_REQUEST,
@@ -37,7 +37,7 @@ from pcap_analyser.radius_dict import (
     STATUS_SERVER,
     text,
 )
-from pcap_analyser.wording import article, listing, plural, secs, times
+from auth_capture_explainer.wording import article, listing, plural, secs, times
 
 SLOW = 1.0  # seconds at p95, for replies other than Access-Reject: a NAS typically times out at 2 to 5 s
 SECRET_HELP = "--secret (prompts), --secret-file or --secret-env"

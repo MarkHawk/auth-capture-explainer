@@ -4,9 +4,9 @@ attributes, and messages that are cut short or malformed."""
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import layers, radius
-from pcap_analyser.radius import Malformed, Message, Ports
-from pcap_analyser.radius_dict import Attribute
+from auth_capture_explainer import layers, radius
+from auth_capture_explainer.radius import Malformed, Message, Ports
+from auth_capture_explainer.radius_dict import Attribute
 
 
 def packet(payload, sport=40000, dport=1812, src=pb.CLIENT, dst=pb.SERVER, cut=False, frame=1, ts=1.0):

@@ -7,8 +7,8 @@ capture would record on the capturing host.
 
 import pcapbuild as pb
 import radius_sign as sign
-from pcap_analyser import layers, radius
-from pcap_analyser import radius_exchange as rx
+from auth_capture_explainer import layers, radius
+from auth_capture_explainer import radius_exchange as rx
 
 SERVER_SECRET = b"sample-server-secret"
 NAS_SECRET = SERVER_SECRET

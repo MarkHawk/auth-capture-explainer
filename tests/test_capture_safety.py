@@ -26,7 +26,7 @@ sc = load_script("sanitise_capture")
 
 LAB_ENV = pathlib.Path(os.environ.get("IDENTITY_LAB_ENV", pathlib.Path.home() / "identity-lab" / ".env"))
 CAPTURES = sorted((ROOT / "samples" / "lab").glob("*.pcap")) + sorted(
-    (ROOT / "src" / "pcap_analyser" / "demo_samples").glob("*.pcap"))
+    (ROOT / "src" / "auth_capture_explainer" / "demo_samples").glob("*.pcap"))
 MADE = {"real lab traffic", "repeated through a relay", "synthetic"}
 
 

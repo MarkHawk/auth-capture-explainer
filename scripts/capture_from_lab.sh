@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture identity-lab traffic for pcap-analyser's lab samples, from outside
+# Capture identity-lab traffic for auth-capture-explainer's lab samples, from outside
 # the lab, then sanitise it into samples/lab/<label>.pcap.
 #
 #   scripts/capture_from_lab.sh <label> [<label> ...]     or     all
@@ -34,10 +34,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 LAB_DIR="${LAB_DIR:-$HOME/identity-lab}"
-IMAGE=pcap-analyser-capture:local
+IMAGE=auth-capture-explainer-capture:local
 RAW=scratch/lab
 PY=venv/bin/python
-NAME="pcap-analyser-capture-$$"
+NAME="auth-capture-explainer-capture-$$"
 LABELS=(radius-accept radius-reject radius-05-broken radius-05-fixed ldap-good ldap-04-broken ldap-04-fixed
         ldaps-04-encrypted)
 SVC_DN="cn=keycloak-svc,ou=services,dc=idlab,dc=example"

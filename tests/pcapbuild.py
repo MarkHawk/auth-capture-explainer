@@ -1,7 +1,7 @@
 """Build small synthetic captures for tests.
 
 Packets are assembled with dpkt; the .pcap and .pcapng files are written
-here with struct, independently of pcap_analyser.capture, so a mistake in the
+here with struct, independently of auth_capture_explainer.capture, so a mistake in the
 reader cannot be mirrored by the writer. Addresses come from the
 documentation ranges (192.0.2.0/24, 198.51.100.0/24, 2001:db8::/32).
 """

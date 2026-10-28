@@ -25,10 +25,10 @@ never count against one: another client entry may hold another secret.
 
 from dataclasses import dataclass, field
 
-from pcap_analyser import ldap_codes, runbooks
-from pcap_analyser.findings import Status
-from pcap_analyser.radius_checks import SECRET_HELP
-from pcap_analyser.wording import secs
+from auth_capture_explainer import ldap_codes, runbooks
+from auth_capture_explainer.findings import Status
+from auth_capture_explainer.radius_checks import SECRET_HELP
+from auth_capture_explainer.wording import secs
 
 
 @dataclass

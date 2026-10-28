@@ -3,8 +3,8 @@
 import pytest
 
 import ldap_build as lb
-from pcap_analyser import ber
-from pcap_analyser.ber import BerError, Incomplete
+from auth_capture_explainer import ber
+from auth_capture_explainer.ber import BerError, Incomplete
 
 
 def test_short_and_long_lengths():

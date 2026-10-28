@@ -5,8 +5,8 @@ import io
 import re
 
 from conftest import ROOT
-from pcap_analyser import codes, demo
-from pcap_analyser.cli import build_parser, main
+from auth_capture_explainer import codes, demo
+from auth_capture_explainer.cli import build_parser, main
 
 README = (ROOT / "README.md").read_text()
 USAGE = (ROOT / "docs" / "usage.md").read_text()
@@ -30,7 +30,7 @@ def output(*argv):
 
 
 def test_the_problem_comes_first_then_the_quick_start():
-    assert README.startswith("# pcap-analyser\n\n**pcap-analyser reads a packet capture and explains")
+    assert README.startswith("# auth-capture-explainer\n\n**auth-capture-explainer reads a packet capture and explains")
     assert re.findall(r"^## .*", README, re.M)[0] == "## Try it in 1 minute"
 
 
@@ -41,13 +41,13 @@ def test_quick_start_install_is_three_commands():
 
 def test_quick_start_shows_the_demo_with_its_real_output():
     blocks = code_blocks(section(README, "Try it in 1 minute"))
-    assert blocks[1] == "pcap-analyser demo\n"
+    assert blocks[1] == "auth-capture-explainer demo\n"
     assert blocks[2] == output("demo")
 
 
 def test_the_full_report_is_real_output():
     blocks = code_blocks(section(README, "Try it in 1 minute").split("### One full report\n", 1)[1])
-    assert blocks[0] == "pcap-analyser demo radius-secret\n"
+    assert blocks[0] == "auth-capture-explainer demo radius-secret\n"
     assert blocks[1] == output("demo", "radius-secret")
 
 
@@ -59,7 +59,7 @@ def test_usage_lists_every_option():
 
 
 def test_usage_lists_every_demo_capture():
-    for s in demo.load_samples(ROOT / "src" / "pcap_analyser" / "demo_samples"):
+    for s in demo.load_samples(ROOT / "src" / "auth_capture_explainer" / "demo_samples"):
         assert f"| `{s['name']}` |" in USAGE
 
 

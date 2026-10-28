@@ -1,6 +1,6 @@
 """Read what a TLS connection shows in clear, and nothing more.
 
-pcap-analyser never decrypts. What TLS leaves in clear is still useful
+auth-capture-explainer never decrypts. What TLS leaves in clear is still useful
 when an encrypted LDAP connection fails:
 
 - the ClientHello: the TLS versions the client offers and the server name

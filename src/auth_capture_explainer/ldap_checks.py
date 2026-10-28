@@ -28,12 +28,12 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-from pcap_analyser import ldap, ldap_codes
-from pcap_analyser import ldap_exchange as lx
-from pcap_analyser.findings import Finding, Status
-from pcap_analyser.latency import Summary
-from pcap_analyser.radius_checks import server_key
-from pcap_analyser.wording import article, listing, plural, secs
+from auth_capture_explainer import ldap, ldap_codes
+from auth_capture_explainer import ldap_exchange as lx
+from auth_capture_explainer.findings import Finding, Status
+from auth_capture_explainer.latency import Summary
+from auth_capture_explainer.radius_checks import server_key
+from auth_capture_explainer.wording import article, listing, plural, secs
 
 SLOW = 1.0  # seconds at p95
 USER_FILTER = re.compile(r"\((?:uid|samaccountname|userprincipalname|mail|cn)=[^*)]", re.IGNORECASE)
@@ -45,7 +45,7 @@ USER_WORDS = {"people", "users", "user", "staff", "employees", "persons", "stude
 READABLE_CAPTURE = (
     "To see the LDAP itself, capture where it is in clear: between a TLS-terminating proxy or load balancer and "
     "the directory, or on a test client using plain LDAP or StartTLS on a trusted network. Failing that, have "
-    "the application log the LDAP result codes it gets, or read the directory's own access log. pcap-analyser "
+    "the application log the LDAP result codes it gets, or read the directory's own access log. auth-capture-explainer "
     "does not decrypt TLS, even with keys.")
 
 

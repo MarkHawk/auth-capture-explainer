@@ -5,8 +5,8 @@ or switches to TLS."""
 import pytest
 
 import ldap_build as lb
-from pcap_analyser import ber, ldap, tcpstream
-from pcap_analyser.ber import BerError
+from auth_capture_explainer import ber, ldap, tcpstream
+from auth_capture_explainer.ber import BerError
 
 PASSWORD = "canary-bind-password"
 

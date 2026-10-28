@@ -6,8 +6,8 @@ import struct
 
 import pytest
 
-from pcap_analyser import radius_dict as rd
-from pcap_analyser.radius_dict import Attribute
+from auth_capture_explainer import radius_dict as rd
+from auth_capture_explainer.radius_dict import Attribute
 
 CANARY = b"canary-secret-0123456789"
 

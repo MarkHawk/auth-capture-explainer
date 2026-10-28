@@ -5,10 +5,10 @@ import io
 import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import render
-from pcap_analyser.analyse import Options, analyse
-from pcap_analyser.capture import read_capture
-from pcap_analyser.findings import Status
+from auth_capture_explainer import render
+from auth_capture_explainer.analyse import Options, analyse
+from auth_capture_explainer.capture import read_capture
+from auth_capture_explainer.findings import Status
 from radius_trace import OTHER_CLIENT, Trace
 
 
@@ -175,7 +175,7 @@ def test_an_unanswered_health_check_is_shown_in_full(tmp_path):
 
 
 def test_a_failing_secret_check_on_loopback_is_shown_in_full(tmp_path):
-    from pcap_analyser.secret import Secret
+    from auth_capture_explainer.secret import Secret
 
     report = report_for(tmp_path, health_checks_and_a_silent_nas(secret=b"server"),
                         options=Options(secret=Secret(b"nas", "test")))

@@ -15,7 +15,7 @@ snapshot length still shows who asked whom and with which ID.
 import struct
 from dataclasses import dataclass, field
 
-from pcap_analyser.radius_dict import (
+from auth_capture_explainer.radius_dict import (
     CODES,
     REQUESTS,
     VENDOR_SPECIFIC,

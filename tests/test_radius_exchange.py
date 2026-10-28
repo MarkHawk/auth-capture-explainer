@@ -7,8 +7,8 @@ import struct
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import layers, radius
-from pcap_analyser import radius_exchange as rx
+from auth_capture_explainer import layers, radius
+from auth_capture_explainer import radius_exchange as rx
 
 OTHER_CLIENT, OTHER_SERVER = "198.51.100.20", "198.51.100.2"
 

@@ -17,8 +17,8 @@ import dpkt
 import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import layers
-from pcap_analyser.cli import main
+from auth_capture_explainer import layers
+from auth_capture_explainer.cli import main
 from radius_trace import Trace
 
 LDAP_IF, RADIUS_IF = 0, 1

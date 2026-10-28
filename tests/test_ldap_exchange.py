@@ -4,7 +4,7 @@ and their requests paired with responses."""
 import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
-from pcap_analyser import ldap_exchange as lx
+from auth_capture_explainer import ldap_exchange as lx
 
 SVC = "cn=svc,ou=services,dc=example"
 

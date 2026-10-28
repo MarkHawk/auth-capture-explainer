@@ -1,7 +1,7 @@
 """Sign RADIUS messages for tests, written from the RFCs independently of
-pcap_analyser.radius_auth. The RFC 2865 worked example in test_radius_auth.py
-and the real NAS packets in test_spike_local.py check that both agree with
-the outside world, not just with each other."""
+auth_capture_explainer.radius_auth. The RFC 2865 worked example in
+test_radius_auth.py and the real lab captures in test_lab_samples.py check
+that both agree with the outside world, not just with each other."""
 
 import hashlib
 import hmac

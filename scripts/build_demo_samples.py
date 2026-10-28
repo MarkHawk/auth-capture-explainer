@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the captures bundled with the package for `pcap-analyser demo`.
+"""Build the captures bundled with the package for `auth-capture-explainer demo`.
 
     python scripts/build_demo_samples.py
 
@@ -23,7 +23,7 @@ import dpkt
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAB = ROOT / "samples" / "lab"
-OUT = ROOT / "src" / "pcap_analyser" / "demo_samples"
+OUT = ROOT / "src" / "auth_capture_explainer" / "demo_samples"
 
 _spec = importlib.util.spec_from_file_location("sanitise_capture", ROOT / "scripts" / "sanitise_capture.py")
 sc = importlib.util.module_from_spec(_spec)

@@ -1,4 +1,4 @@
-from pcap_analyser.latency import Summary, percentile
+from auth_capture_explainer.latency import Summary, percentile
 
 
 def test_nearest_rank():

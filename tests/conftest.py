@@ -20,10 +20,10 @@ def no_network(monkeypatch):
     """The tool only reads local files: any connection or name lookup fails the test."""
 
     def refuse(*args, **kwargs):
-        raise AssertionError("pcap-analyser attempted a network connection")
+        raise AssertionError("auth-capture-explainer attempted a network connection")
 
     def refuse_lookup(*args, **kwargs):
-        raise AssertionError("pcap-analyser tried to resolve a name")
+        raise AssertionError("auth-capture-explainer tried to resolve a name")
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket.socket, "connect_ex", refuse)

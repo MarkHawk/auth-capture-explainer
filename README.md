@@ -1,6 +1,6 @@
-# pcap-analyser
+# auth-capture-explainer
 
-**pcap-analyser reads a packet capture and explains, in plain English, why
+**auth-capture-explainer reads a packet capture and explains, in plain English, why
 RADIUS or LDAP logins are failing.** Given a `.pcap` or `.pcapng` from
 Wireshark or tcpdump, it pairs every request with its reply, says what each
 side did, and names the likely cause with the evidence for and against it: a
@@ -23,11 +23,11 @@ pip install -e .
 Then see what it makes of six bundled captures:
 
 ```
-pcap-analyser demo
+auth-capture-explainer demo
 ```
 
 ```
-pcap-analyser demo: 6 bundled captures, analysed offline
+auth-capture-explainer demo: 6 bundled captures, analysed offline
 
   radius-ok      RADIUS login accepted                      PASS  no problems found
   radius-reject  RADIUS wrong password, secret checked      FAIL  login rejected by the server
@@ -36,19 +36,19 @@ pcap-analyser demo: 6 bundled captures, analysed offline
   ldaps          LDAPS, encrypted end to end                INFO  encrypted: no claim about what is inside
   ad-locked      AD service account locked out (synthetic)  FAIL  the service account cannot bind (likely)
 
-Full report for one capture:  pcap-analyser demo <name>   e.g. pcap-analyser demo radius-secret
-Try your own capture:         pcap-analyser <file.pcap>
+Full report for one capture:  auth-capture-explainer demo <name>   e.g. auth-capture-explainer demo radius-secret
+Try your own capture:         auth-capture-explainer <file.pcap>
 ```
 
 ### One full report
 
 ```
-pcap-analyser demo radius-secret
+auth-capture-explainer demo radius-secret
 ```
 
 ```
-$ pcap-analyser radius-secret.pcap
-pcap-analyser 0.1.0
+$ auth-capture-explainer radius-secret.pcap
+auth-capture-explainer 0.1.0
 Capture:  radius-secret.pcap (pcap, Linux cooked v2, 11 packets over 15.2 s, from 2026-10-27 14:59:06 UTC)
 Seen:     RADIUS 5 requests from 2 clients to 2 servers; LDAP none
 
@@ -100,29 +100,29 @@ Verdict: 1 problem to fix (1 FAIL, 0 WARN, 5 PASS, 1 INFO, 1 SKIP)
 This is identity-lab's scenario 05, captured on the RADIUS server: the NAS
 resends a login three times and the server, which answers its own health
 checks throughout, never replies. Run it again with
-`pcap-analyser demo radius-reject` to see a reject that the shared secret
+`auth-capture-explainer demo radius-reject` to see a reject that the shared secret
 proves genuine.
 
 ## Reading your own capture
 
 ```
 # the capture, as a file
-pcap-analyser auth.pcapng
+auth-capture-explainer auth.pcapng
 
 # with the RADIUS shared secret, to check it against both sides (it asks; the secret never goes on the
 # command line, and is never shown)
-pcap-analyser auth.pcap --secret
-pcap-analyser auth.pcap --secret-file radius.secret
+auth-capture-explainer auth.pcap --secret
+auth-capture-explainer auth.pcap --secret-file radius.secret
 
 # straight from tcpdump, until Ctrl-C (what arrived is then analysed)
-sudo tcpdump -i any -w - udp port 1812 or udp port 1813 | pcap-analyser -
+sudo tcpdump -i any -w - udp port 1812 or udp port 1813 | auth-capture-explainer -
 
 # telling it what the capture cannot: whose bind DN it is, and where the capture was taken
-pcap-analyser ldap.pcap --service-dn "cn=portal,ou=services,dc=example,dc=com"
-pcap-analyser radius.pcap --captured-on server
+auth-capture-explainer ldap.pcap --service-dn "cn=portal,ou=services,dc=example,dc=com"
+auth-capture-explainer radius.pcap --captured-on server
 
 # RADIUS or LDAP on other ports, and JSON for another tool
-pcap-analyser odd.pcap --radius-port 11812 --ldap-port 10389 --json
+auth-capture-explainer odd.pcap --radius-port 11812 --ldap-port 10389 --json
 ```
 
 RADIUS is read on UDP 1812 and 1813 and the legacy 1645 and 1646; LDAP on TCP
@@ -262,7 +262,7 @@ The test suite is offline: a fixture fails any test that opens a socket.
 
 ## A note on how this was built
 
-pcap-analyser was written with AI-assisted tooling (Claude Code). The design
+auth-capture-explainer was written with AI-assisted tooling (Claude Code). The design
 decisions, the checks and this documentation were reviewed by a person.
 
 ## Licence

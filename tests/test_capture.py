@@ -4,8 +4,8 @@ that are not captures, and files that are cut short, damaged or too big."""
 import pytest
 
 import pcapbuild as pb
-from pcap_analyser import capture, layers
-from pcap_analyser.capture import CaptureError, Limits, read_capture
+from auth_capture_explainer import capture, layers
+from auth_capture_explainer.capture import CaptureError, Limits, read_capture
 
 RADIUS = b"\x01\x07\x00\x14" + b"A" * 16
 

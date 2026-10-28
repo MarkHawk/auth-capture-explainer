@@ -6,7 +6,7 @@ A support engineer handed "nobody can log in to the Wi-Fi" or "SSO says our
 passwords are wrong" often gets a packet capture with the ticket, and no
 quick way to read it. The answer is in RADIUS attributes and authenticators,
 LDAP result codes and diagnostic messages, and what did or did not come back,
-split between two systems owned by different teams. pcap-analyser reads the
+split between two systems owned by different teams. auth-capture-explainer reads the
 capture and says, in plain English, what each side did and what is most
 likely wrong.
 

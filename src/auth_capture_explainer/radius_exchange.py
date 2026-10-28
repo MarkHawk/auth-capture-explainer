@@ -40,9 +40,9 @@ make every server with a wrong-password login look slow.
 from collections import Counter
 from dataclasses import dataclass, field
 
-from pcap_analyser import radius
-from pcap_analyser.latency import Summary, percentile
-from pcap_analyser.radius_dict import (
+from auth_capture_explainer import radius
+from auth_capture_explainer.latency import Summary, percentile
+from auth_capture_explainer.radius_dict import (
     ACCESS_REJECT,
     ACCESS_REQUEST,
     ACCOUNTING_REQUEST,

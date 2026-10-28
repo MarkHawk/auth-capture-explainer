@@ -26,7 +26,7 @@ import struct
 from collections import Counter
 from dataclasses import dataclass, field
 
-from pcap_analyser import layers
+from auth_capture_explainer import layers
 
 MiB = 1024 * 1024
 MAX_RECORD = 1 * MiB  # one packet; tcpdump's largest snapshot length is 256 KiB
@@ -115,7 +115,7 @@ def read_stream(stream, name="standard input", limits=None):
     """Read a capture from a binary stream, such as tcpdump -w - piped in, a chunk at a time. The size limit
     applies as it reads, so an endless stream stops at the limit rather than filling memory.
 
-    Ctrl-C while reading (as when stopping 'tcpdump -w - | pcap-analyser -') ends the reading, not the
+    Ctrl-C while reading (as when stopping 'tcpdump -w - | auth-capture-explainer -') ends the reading, not the
     program: what arrived is analysed, and the report says the capture stopped early. So does a stream that
     ends part-way through a packet."""
     limits = limits or Limits()
@@ -369,7 +369,7 @@ def _pcapng_records(f):
             yield last_ts, interfaces[0].linktype, data, None, origlen > len(data)
         elif btype == BT_DSB:
             yield ("The capture contains a decryption secrets block (for example TLS session keys). "
-                   "pcap-analyser does not use it and never decrypts traffic.")
+                   "auth-capture-explainer does not use it and never decrypts traffic.")
         # Other blocks (name resolution, statistics, custom) carry nothing this tool needs.
 
 

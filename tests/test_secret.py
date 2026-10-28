@@ -5,8 +5,8 @@ import io
 
 import pytest
 
-from pcap_analyser import secret as sec
-from pcap_analyser.secret import Secret, SecretError
+from auth_capture_explainer import secret as sec
+from auth_capture_explainer.secret import Secret, SecretError
 
 VALUE = "canary-shared-secret"
 

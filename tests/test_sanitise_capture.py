@@ -18,9 +18,9 @@ import pcapbuild as pb
 import radius_sign as sign
 from conftest import load_script
 from ldap_build import Conversation
-from pcap_analyser import layers, ldap_exchange, radius_auth
-from pcap_analyser.capture import read_capture
-from pcap_analyser.radius_exchange import analyse as radius_analyse
+from auth_capture_explainer import layers, ldap_exchange, radius_auth
+from auth_capture_explainer.capture import read_capture
+from auth_capture_explainer.radius_exchange import analyse as radius_analyse
 from radius_trace import auth_for
 
 sc = load_script("sanitise_capture")

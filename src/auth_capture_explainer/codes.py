@@ -1,4 +1,4 @@
-"""Every machine-readable code pcap-analyser can emit, with what each means.
+"""Every machine-readable code auth-capture-explainer can emit, with what each means.
 
 Findings are identified by their check_id and likely causes by their pattern;
 --json gives both as "code". These codes are part of the interface: another

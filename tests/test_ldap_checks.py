@@ -9,11 +9,11 @@ import ldap_build as lb
 import pcapbuild as pb
 import pytest
 from ldap_build import Conversation
-from pcap_analyser import ldap_checks as lc
-from pcap_analyser import ldap_exchange as lx
-from pcap_analyser import runbooks
-from pcap_analyser.causes import likely_causes
-from pcap_analyser.findings import Status
+from auth_capture_explainer import ldap_checks as lc
+from auth_capture_explainer import ldap_exchange as lx
+from auth_capture_explainer import runbooks
+from auth_capture_explainer.causes import likely_causes
+from auth_capture_explainer.findings import Status
 
 SVC = "cn=keycloak-svc,ou=services,dc=idlab,dc=example"
 APP = "cn=portal,ou=apps,dc=example"
@@ -168,7 +168,7 @@ def test_bind_then_search_wins_over_appearing_in_search_results():
 
 
 def test_upn_and_down_level_names_are_read_for_hints():
-    from pcap_analyser.ldap_exchange import Result
+    from auth_capture_explainer.ldap_exchange import Result
     empty = Result(lx.DEFAULT_PORTS)
     assert lc.bind_role("svc-portal@corp.example", empty).role == "service"
     assert lc.bind_role("CORP\\svc_portal", empty).role == "service"
@@ -472,7 +472,7 @@ def test_each_client_gets_its_own_cause():
 
 def test_radius_and_ldap_causes_side_by_side():
     from radius_trace import Trace
-    from pcap_analyser import radius_checks, radius_exchange
+    from auth_capture_explainer import radius_checks, radius_exchange
 
     c = Conversation().handshake(1.0)
     bind(c, 1.1, 1, SVC, 49)

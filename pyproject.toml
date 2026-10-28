@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pcap-analyser"
+name = "auth-capture-explainer"
 version = "0.1.0"
 description = "Explain RADIUS and LDAP authentication failures from a packet capture, offline"
 readme = "README.md"
@@ -14,13 +14,13 @@ dependencies = [
 ]
 
 [project.scripts]
-pcap-analyser = "pcap_analyser.cli:main"
+auth-capture-explainer = "auth_capture_explainer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-pcap_analyser = ["demo_samples/*.pcap", "demo_samples/*.json", "demo_samples/sample.secret"]
+auth_capture_explainer = ["demo_samples/*.pcap", "demo_samples/*.json", "demo_samples/sample.secret"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

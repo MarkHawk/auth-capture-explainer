@@ -1,4 +1,4 @@
-"""`pcap-analyser demo`: run the bundled captures and summarise each in a line.
+"""`auth-capture-explainer demo`: run the bundled captures and summarise each in a line.
 
 The captures live in demo_samples/ (built by scripts/build_demo_samples.py):
 sanitised captures from identity-lab, and one synthetic Active Directory
@@ -12,15 +12,15 @@ import importlib.resources
 import io
 import json
 
-from pcap_analyser.wording import plural
+from auth_capture_explainer.wording import plural
 
-INTRO = "pcap-analyser demo: {n} bundled captures, analysed offline"
+INTRO = "auth-capture-explainer demo: {n} bundled captures, analysed offline"
 
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="pcap-analyser demo",
-        description="Run pcap-analyser on bundled captures. No network, no flags needed.",
+        prog="auth-capture-explainer demo",
+        description="Run auth-capture-explainer on bundled captures. No network, no flags needed.",
     )
     p.add_argument("name", nargs="?", help="show the full report for one capture (see the list without a name)")
     p.add_argument("--json", action="store_true", help="with a name, print its report as JSON")
@@ -30,7 +30,7 @@ def build_parser():
 
 @contextlib.contextmanager
 def sample_dir():
-    with importlib.resources.as_file(importlib.resources.files("pcap_analyser") / "demo_samples") as path:
+    with importlib.resources.as_file(importlib.resources.files("auth_capture_explainer") / "demo_samples") as path:
         yield path
 
 
@@ -45,7 +45,7 @@ def sample_argv(folder, sample):
 def shown_command(sample):
     """The command as a user would type it in the samples folder: file names, not install paths."""
     args = [a.replace("{dir}/", "") for a in sample["args"]]
-    return " ".join(["pcap-analyser", sample["file"], *args])
+    return " ".join(["auth-capture-explainer", sample["file"], *args])
 
 
 def one_line(data):
@@ -64,17 +64,17 @@ def one_line(data):
 
 
 def run_demo(argv, stdout, stderr, cli):
-    """cli is the pcap_analyser.cli module, passed in to avoid an import cycle."""
+    """cli is the auth_capture_explainer.cli module, passed in to avoid an import cycle."""
     parser = build_parser()
     args = parser.parse_args(argv)
     if (args.json or args.verbose) and not args.name:
-        parser.error("--json and --verbose need a capture name, for example: pcap-analyser demo radius-secret --json")
+        parser.error("--json and --verbose need a capture name, for example: auth-capture-explainer demo radius-secret --json")
     with sample_dir() as folder:
         samples = load_samples(folder)
         names = [s["name"] for s in samples]
         if args.name:
             if args.name not in names:
-                print(f"pcap-analyser demo: no capture {args.name!r}; choose from {', '.join(names)}", file=stderr)
+                print(f"auth-capture-explainer demo: no capture {args.name!r}; choose from {', '.join(names)}", file=stderr)
                 return cli.EXIT_ERROR
             sample = samples[names.index(args.name)]
             extra = (["--json"] if args.json else []) + (["--verbose"] if args.verbose else [])
@@ -92,7 +92,7 @@ def run_demo(argv, stdout, stderr, cli):
             print(f"  {sample['name']:<{name_width}}  {sample['title']:<{title_width}}  {status:<4}  {text}",
                   file=stdout)
         print(file=stdout)
-        print("Full report for one capture:  pcap-analyser demo <name>   e.g. pcap-analyser demo radius-secret",
+        print("Full report for one capture:  auth-capture-explainer demo <name>   e.g. auth-capture-explainer demo radius-secret",
               file=stdout)
-        print("Try your own capture:         pcap-analyser <file.pcap>", file=stdout)
+        print("Try your own capture:         auth-capture-explainer <file.pcap>", file=stdout)
     return cli.EXIT_OK

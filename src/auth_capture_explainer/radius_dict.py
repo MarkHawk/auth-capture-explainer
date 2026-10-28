@@ -20,7 +20,7 @@ import ipaddress
 import struct
 from dataclasses import dataclass
 
-from pcap_analyser.safetext import MAX_SHOWN, text  # re-exported: the RADIUS modules show text through here
+from auth_capture_explainer.safetext import MAX_SHOWN, text  # re-exported: the RADIUS modules show text through here
 
 # Codes (RFC 2865, 2866, 5997, 5176).
 CODES = {

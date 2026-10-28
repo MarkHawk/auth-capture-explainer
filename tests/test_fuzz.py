@@ -14,12 +14,12 @@ import ldap_build as lb
 import pcapbuild as pb
 from ldap_build import Conversation
 from radius_trace import Trace
-from pcap_analyser import ber, layers, ldap, ldap_checks, ldap_exchange, radius_checks, radius_exchange, render, servers
-from pcap_analyser.analyse import Options, analyse
-from pcap_analyser.capture import Capture, CaptureError, read_capture
-from pcap_analyser.causes import likely_causes
-from pcap_analyser.radius_dict import ATTRIBUTES
-from pcap_analyser.secret import Secret
+from auth_capture_explainer import ber, layers, ldap, ldap_checks, ldap_exchange, radius_checks, radius_exchange, render, servers
+from auth_capture_explainer.analyse import Options, analyse
+from auth_capture_explainer.capture import Capture, CaptureError, read_capture
+from auth_capture_explainer.causes import likely_causes
+from auth_capture_explainer.radius_dict import ATTRIBUTES
+from auth_capture_explainer.secret import Secret
 
 SEED = 20261027
 RADIUS = b"\x01\x07\x00\x14" + b"A" * 16
