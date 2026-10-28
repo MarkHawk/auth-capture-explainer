@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 
 from auth_capture_explainer import ldap, tcpstream, tls
 from auth_capture_explainer.ldap import EXTENDED_RESPONSE, FINAL_RESPONSES, NO_RESPONSE, RESPONSES_FOR, SEARCH_ENTRY
+from auth_capture_explainer.tls import TlsInfo
 
 LDAP, STARTTLS, TLS, SASL, EMPTY, UNREADABLE = "ldap", "starttls", "tls", "sasl", "empty", "unreadable"
 
@@ -103,7 +104,7 @@ class Connection:
     orphan_responses: list = field(default_factory=list)  # responses to requests not in the capture
     notices: list = field(default_factory=list)  # Notice of Disconnection and other unsolicited responses
     problems: list = field(default_factory=list)  # ldap.Problem, from either direction
-    tls: tls.TlsInfo = None
+    tls: TlsInfo = None  # not tls.TlsInfo: the field's name would hide the module before Python 3.14
     tls_frame: int = None  # where TLS starts
     sasl_mechanism: str = None  # the SASL bind that started the security layer
     sasl_frame: int = None  # where the wrapped messages start
